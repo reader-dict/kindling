@@ -67,6 +67,10 @@ Kindling accepts EPUB files (standard zip-packaged EPUB) or OPF files as input. 
 
 By default, kindling skips two optional records that *kindlegen* includes: SRCS (a copy of the original EPUB embedded in the MOBI) and CMET (build log metadata). The Kindle ignores both. Use `--embed-source` and `--include-cmet` to include them if needed.
 
+<p align="center">
+  <img width="500" alt="Pepper & Carrot comic on Kindle, built with kindling" src="kindle_comic_test.jpg">
+</p>
+
 ### Kindlegen compatibility
 
 Kindling can be used as a drop-in *kindlegen* replacement. It accepts the same CLI syntax and prints compatible status codes:
