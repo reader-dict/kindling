@@ -106,6 +106,10 @@ Kindling works with the KF7/MOBI format used by Kindle e-readers for dictionary 
 - **PalmDB name**: Derived from `dc:title` by removing `()[]`, replacing spaces with underscores, and truncating to `first_12 + '-' + last_14` if longer than 27 characters.
 - **Dictionary detection**: The Kindle identifies a file as a dictionary when the MOBI header orthographic index field (offset 0x28) is not 0xFFFFFFFF. MOBI type remains 2 (book), not a special dictionary type.
 
+## Attribution
+
+Kindling was created by Francisco Riordan. Source code is available at https://github.com/ciscoriordan/kindling.
+
 ## License
 
 MIT
