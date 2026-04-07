@@ -92,6 +92,8 @@ Kindling works with the KF7/MOBI format used by Kindle e-readers for dictionary 
 
 ### Key format details
 
+Much of the foundational MOBI format knowledge comes from the [MobileRead wiki](https://wiki.mobileread.com/wiki/MOBI), which documents the community's reverse-engineering work over many years. The dictionary-specific details below were reverse-engineered from *kindlegen* output for this project.
+
 - **Trailing bytes** (`\x00\x81`): Each text record ends with a multibyte marker + TBS byte. The TBS byte MUST have bit 7 set so the Kindle's backward VWI parser self-delimits. Using `\x01\x00` (wrong order, no bit 7) causes the parser to read into compressed data, destroying all text content and silently breaking lookup.
 - **Inverted VWI**: Tag values use "high bit = stop" encoding (opposite of standard VWI). This is undocumented and was reverse-engineered by comparing against *kindlegen* output.
 - **Labels**: UTF-16BE for non-ASCII headwords (Greek, Cyrillic, etc.), plain ASCII for ASCII-only labels.
