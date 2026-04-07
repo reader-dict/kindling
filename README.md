@@ -4,7 +4,7 @@
   <img width="700" alt="Kindling - Modern, cross-platform kindlegen replacement" src="kindling_logo.jpg">
 </p>
 
-Reverse-engineered Rust replacement for Amazon's *kindlegen*. 7,000x faster.
+Reverse-engineered Rust replacement for Amazon's *kindlegen*. ~7,000x faster for large inflected-language dictionaries, ~40x faster for illustrated books and comics.
 
 Kindling builds Kindle `.mobi` files from OPF/HTML or EPUB source. It supports both dictionary MOBIs (with full lookup index) and regular book MOBIs (with embedded images and KF8 dual-format output). The MOBI format is barely documented by Amazon - kindling was built by reverse-engineering *kindlegen* output byte by byte, with help from the [MobileRead wiki](https://wiki.mobileread.com/wiki/MOBI).
 
