@@ -229,6 +229,7 @@ pub fn build_book_exth(
     fixed_layout: Option<&FixedLayoutMeta>,
     kf8_boundary_record: Option<u32>,
     hd_geometry: Option<&str>,
+    creator_tag: bool,
 ) -> Vec<u8> {
     let mut records: Vec<Vec<u8>> = Vec::new();
 
@@ -262,13 +263,18 @@ pub fn build_book_exth(
     // EXTH 131 (value 0)
     records.push(exth_record(131, &0u32.to_be_bytes()));
 
-    // Creator software - kindling identity
-    records.push(exth_record(204, &300u32.to_be_bytes())); // platform = 300 (kindling)
-    records.push(exth_record(205, &0u32.to_be_bytes())); // major = 0
-    records.push(exth_record(206, &1u32.to_be_bytes())); // minor = 1
-
-    // Creator build string (535)
-    records.push(exth_record(535, b"kindling-0.2.0"));
+    // Creator software identity
+    if creator_tag {
+        records.push(exth_record(204, &300u32.to_be_bytes())); // platform = 300 (kindling)
+        records.push(exth_record(205, &0u32.to_be_bytes()));
+        records.push(exth_record(206, &2u32.to_be_bytes()));
+        records.push(exth_record(535, b"kindling-0.2.0"));
+    } else {
+        records.push(exth_record(204, &201u32.to_be_bytes())); // platform = 201 (Mac)
+        records.push(exth_record(205, &2u32.to_be_bytes()));
+        records.push(exth_record(206, &9u32.to_be_bytes()));
+        records.push(exth_record(535, b"0730-890adc2"));
+    }
 
     // Creator build (207)
     records.push(exth_record(207, &0u32.to_be_bytes())); // build = 0
@@ -335,6 +341,7 @@ pub fn build_exth(
     dict_in_language: &str,
     dict_out_language: &str,
     headword_chars: &HashSet<u32>,
+    creator_tag: bool,
 ) -> Vec<u8> {
     let mut records: Vec<Vec<u8>> = Vec::new();
 
@@ -379,13 +386,18 @@ pub fn build_exth(
     // EXTH 300 - fontsignature
     records.push(exth_record(300, &build_fontsignature(headword_chars)));
 
-    // Creator software - kindling identity
-    records.push(exth_record(204, &300u32.to_be_bytes())); // platform = 300 (kindling)
-    records.push(exth_record(205, &0u32.to_be_bytes())); // major = 0
-    records.push(exth_record(206, &1u32.to_be_bytes())); // minor = 1
-
-    // Creator build string (535)
-    records.push(exth_record(535, b"kindling-0.2.0"));
+    // Creator software identity
+    if creator_tag {
+        records.push(exth_record(204, &300u32.to_be_bytes())); // platform = 300 (kindling)
+        records.push(exth_record(205, &0u32.to_be_bytes()));
+        records.push(exth_record(206, &2u32.to_be_bytes()));
+        records.push(exth_record(535, b"kindling-0.2.0"));
+    } else {
+        records.push(exth_record(204, &201u32.to_be_bytes())); // platform = 201 (Mac)
+        records.push(exth_record(205, &2u32.to_be_bytes()));
+        records.push(exth_record(206, &9u32.to_be_bytes()));
+        records.push(exth_record(535, b"0730-890adc2"));
+    }
 
     // Creator build (207)
     records.push(exth_record(207, &0u32.to_be_bytes())); // build = 0

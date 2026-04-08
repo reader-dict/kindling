@@ -33,6 +33,7 @@ pub fn build_mobi(
     srcs_data: Option<&[u8]>,
     include_cmet: bool,
     no_hd_images: bool,
+    creator_tag: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let opf = OPFData::parse(opf_path)?;
 
@@ -41,10 +42,10 @@ pub fn build_mobi(
 
     if is_dictionary {
         eprintln!("Detected dictionary content");
-        build_dictionary_mobi(&opf, output_path, no_compress, headwords_only, srcs_data, include_cmet)
+        build_dictionary_mobi(&opf, output_path, no_compress, headwords_only, srcs_data, include_cmet, creator_tag)
     } else {
         eprintln!("Detected book content (no idx:entry tags found)");
-        build_book_mobi(&opf, output_path, no_compress, srcs_data, include_cmet, !no_hd_images)
+        build_book_mobi(&opf, output_path, no_compress, srcs_data, include_cmet, !no_hd_images, creator_tag)
     }
 }
 
@@ -68,6 +69,7 @@ fn build_dictionary_mobi(
     headwords_only: bool,
     srcs_data: Option<&[u8]>,
     include_cmet: bool,
+    creator_tag: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Parse all dictionary entries from HTML content
     let mut all_entries: Vec<DictionaryEntry> = Vec::new();
@@ -191,6 +193,7 @@ fn build_dictionary_mobi(
         None, // no KF8 boundary (dictionaries stay KF7-only)
         srcs_record_idx,
         None, // no HD images for dictionaries
+        creator_tag,
     );
 
     // Assemble all records
@@ -236,6 +239,7 @@ fn build_book_mobi(
     srcs_data: Option<&[u8]>,
     include_cmet: bool,
     hd_images: bool,
+    creator_tag: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Collect images from the OPF manifest
     let image_items = opf.get_image_items(); // Vec<(href, media_type)>
@@ -485,6 +489,7 @@ fn build_book_mobi(
         Some(kf8_record0_global as u32), // EXTH 121 -> KF8 Record 0
         kf7_srcs_idx,
         hd_geometry_string.as_deref(),
+        creator_tag,
     );
 
     // Build KF8 record 0 (version=8, KF8-relative indices)
@@ -505,6 +510,7 @@ fn build_book_mobi(
         cover_offset,
         fixed_layout.as_ref(),
         0xFFFFFFFF, // KF8 first_image (images are in KF7 section)
+        creator_tag,
     );
 
     // Build FLIS/FCIS/EOF for both sections
@@ -1506,6 +1512,7 @@ fn build_record0(
     kf8_boundary_record: Option<u32>,
     srcs_record: Option<usize>,
     hd_geometry: Option<&str>,
+    creator_tag: bool,
 ) -> Vec<u8> {
     let default_name = if is_dictionary { "Dictionary" } else { "Book" };
     let full_name = if opf.title.is_empty() {
@@ -1617,6 +1624,7 @@ fn build_record0(
             &opf.dict_in_language,
             &opf.dict_out_language,
             headword_chars,
+            creator_tag,
         )
     } else {
         exth::build_book_exth(
@@ -1628,6 +1636,7 @@ fn build_record0(
             fixed_layout,
             kf8_boundary_record,
             hd_geometry,
+            creator_tag,
         )
     };
 
@@ -1671,6 +1680,7 @@ fn build_kf8_record0(
     cover_offset: Option<u32>,
     fixed_layout: Option<&exth::FixedLayoutMeta>,
     first_image_record: usize,
+    creator_tag: bool,
 ) -> Vec<u8> {
     let full_name = if opf.title.is_empty() {
         "Book"
@@ -1780,6 +1790,7 @@ fn build_kf8_record0(
         fixed_layout,
         None, // no KF8 boundary in KF8 header itself
         None, // no HD geometry in KF8 header
+        creator_tag,
     );
 
     // Full name offset

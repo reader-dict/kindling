@@ -59,6 +59,10 @@ enum Commands {
         /// Disable HD image container (CONT/CRES) for book MOBIs
         #[arg(long)]
         no_hd_images: bool,
+
+        /// Identify as kindling in EXTH metadata instead of kindlegen
+        #[arg(long)]
+        creator_tag: bool,
     },
 }
 
@@ -131,6 +135,7 @@ fn do_build(
     embed_source: bool,
     include_cmet: bool,
     no_hd_images: bool,
+    creator_tag: bool,
 ) {
     let is_epub = input
         .extension()
@@ -169,7 +174,7 @@ fn do_build(
 
         let result = mobi::build_mobi(
             &opf_path, output_path, no_compress, headwords_only,
-            srcs_data.as_deref(), include_cmet, no_hd_images,
+            srcs_data.as_deref(), include_cmet, no_hd_images, creator_tag,
         );
         epub::cleanup_temp_dir(&temp_dir);
         result
@@ -177,7 +182,7 @@ fn do_build(
         // Direct OPF input
         mobi::build_mobi(
             input, output_path, no_compress, headwords_only,
-            srcs_data.as_deref(), include_cmet, no_hd_images,
+            srcs_data.as_deref(), include_cmet, no_hd_images, creator_tag,
         )
     };
 
@@ -212,7 +217,7 @@ fn main() {
             input.with_extension("mobi")
         };
 
-        do_build(&input, &output_path, false, false, false, false, false);
+        do_build(&input, &output_path, false, false, false, false, false, false);
     } else {
         let cli = Cli::parse();
 
@@ -225,9 +230,10 @@ fn main() {
                 embed_source,
                 include_cmet,
                 no_hd_images,
+                creator_tag,
             } => {
                 let output_path = resolve_output_path(&input, output);
-                do_build(&input, &output_path, no_compress, headwords_only, embed_source, include_cmet, no_hd_images);
+                do_build(&input, &output_path, no_compress, headwords_only, embed_source, include_cmet, no_hd_images, creator_tag);
             }
         }
     }
