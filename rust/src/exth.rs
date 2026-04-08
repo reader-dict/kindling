@@ -220,6 +220,23 @@ pub struct FixedLayoutMeta {
 /// records 122, 307, and 527.
 /// If `hd_geometry` is Some, adds EXTH 536 with the HD image geometry string
 /// (format: "WxH:start-end|").
+///
+/// ## Document type (`doc_type`)
+/// Controls EXTH record 501 which determines where the book appears on Kindle:
+/// - `Some("EBOK")`: appears under "Books". WARNING: Amazon may auto-delete
+///   sideloaded EBOK files when the Kindle connects to WiFi, since it checks
+///   whether the ASIN is in the user's purchase history.
+/// - `Some("PDOC")` or `None`: appears under "Documents" (default, safe).
+///   No cloud deletion risk for sideloaded content.
+///
+/// ## Series metadata
+/// - `description`: EXTH 103, maps to ComicInfo.xml `<Summary>`.
+/// - `subject`: EXTH 105, maps to ComicInfo.xml `<Genre>`.
+/// - `series`: EXTH 112 (`calibre:series`), maps to ComicInfo.xml `<Series>`.
+/// - `series_index`: EXTH 113 (`calibre:series_index`), maps to ComicInfo.xml `<Number>`.
+///
+/// Calibre and other readers use EXTH 112/113 to group books into series and
+/// display volume numbering.
 pub fn build_book_exth(
     title: &str,
     author: &str,
@@ -230,6 +247,11 @@ pub fn build_book_exth(
     kf8_boundary_record: Option<u32>,
     hd_geometry: Option<&str>,
     creator_tag: bool,
+    doc_type: Option<&str>,
+    description: Option<&str>,
+    subject: Option<&str>,
+    series: Option<&str>,
+    series_index: Option<&str>,
 ) -> Vec<u8> {
     let mut records: Vec<Vec<u8>> = Vec::new();
 
@@ -241,6 +263,20 @@ pub fn build_book_exth(
     // Author (100)
     if !author.is_empty() {
         records.push(exth_record(100, author.as_bytes()));
+    }
+
+    // Description/summary (103) - maps to ComicInfo.xml <Summary>
+    if let Some(desc) = description {
+        if !desc.is_empty() {
+            records.push(exth_record(103, desc.as_bytes()));
+        }
+    }
+
+    // Subject/genre (105) - maps to ComicInfo.xml <Genre>
+    if let Some(subj) = subject {
+        if !subj.is_empty() {
+            records.push(exth_record(105, subj.as_bytes()));
+        }
     }
 
     // EXTH 542 - content-dependent 4-byte hash
@@ -257,8 +293,16 @@ pub fn build_book_exth(
         records.push(exth_record(524, language.as_bytes()));
     }
 
-    // Writing mode (525)
-    records.push(exth_record(525, b"horizontal-lr"));
+    // Writing mode (525) - use horizontal-rl for RTL fixed-layout content
+    let writing_mode = if fixed_layout
+        .map(|fl| fl.page_progression_direction.as_deref() == Some("rtl"))
+        .unwrap_or(false)
+    {
+        b"horizontal-rl" as &[u8]
+    } else {
+        b"horizontal-lr" as &[u8]
+    };
+    records.push(exth_record(525, writing_mode));
 
     // EXTH 131 (value 0)
     records.push(exth_record(131, &0u32.to_be_bytes()));
@@ -298,6 +342,35 @@ pub fn build_book_exth(
             // EXTH 527: page-progression-direction
             let ppd = fl.page_progression_direction.as_deref().unwrap_or("ltr");
             records.push(exth_record(527, ppd.as_bytes()));
+        }
+    }
+
+    // Series name (112) - calibre:series, maps to ComicInfo.xml <Series>
+    if let Some(s) = series {
+        if !s.is_empty() {
+            records.push(exth_record(112, s.as_bytes()));
+        }
+    }
+
+    // Series index (113) - calibre:series_index, maps to ComicInfo.xml <Number>
+    if let Some(si) = series_index {
+        if !si.is_empty() {
+            records.push(exth_record(113, si.as_bytes()));
+        }
+    }
+
+    // Document type (501) - controls where the book appears on Kindle.
+    // "EBOK" = Books shelf (WARNING: Amazon may auto-delete sideloaded EBOK
+    //          content when the Kindle connects to WiFi, since it verifies
+    //          the ASIN against the user's purchase history).
+    // "PDOC" = Documents shelf (default, safe for sideloaded content).
+    match doc_type {
+        Some("EBOK") => {
+            records.push(exth_record(501, b"EBOK"));
+        }
+        _ => {
+            // PDOC is the default. We write it explicitly for clarity.
+            records.push(exth_record(501, b"PDOC"));
         }
     }
 
@@ -425,4 +498,175 @@ pub fn build_exth(
     exth.extend_from_slice(&vec![0u8; padding]);
 
     exth
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// Parse EXTH records from a raw EXTH block. Returns a vec of (type, data) pairs.
+    fn parse_exth_records(exth: &[u8]) -> Vec<(u32, Vec<u8>)> {
+        assert_eq!(&exth[0..4], b"EXTH");
+        let _exth_len = u32::from_be_bytes([exth[4], exth[5], exth[6], exth[7]]) as usize;
+        let rec_count = u32::from_be_bytes([exth[8], exth[9], exth[10], exth[11]]) as usize;
+        let mut offset = 12;
+        let mut records = Vec::new();
+        for _ in 0..rec_count {
+            let rec_type = u32::from_be_bytes([
+                exth[offset], exth[offset + 1], exth[offset + 2], exth[offset + 3],
+            ]);
+            let rec_len = u32::from_be_bytes([
+                exth[offset + 4], exth[offset + 5], exth[offset + 6], exth[offset + 7],
+            ]) as usize;
+            let data = exth[offset + 8..offset + rec_len].to_vec();
+            records.push((rec_type, data));
+            offset += rec_len;
+        }
+        records
+    }
+
+    /// Helper to find a record by type.
+    fn find_record(records: &[(u32, Vec<u8>)], rec_type: u32) -> Option<Vec<u8>> {
+        records.iter().find(|(t, _)| *t == rec_type).map(|(_, d)| d.clone())
+    }
+
+    #[test]
+    fn test_exth_doc_type_pdoc_default() {
+        let exth = build_book_exth(
+            "Test Book", "Author", "2026-01-01", "en",
+            None, None, None, None, false,
+            None,          // doc_type: None should produce PDOC
+            None, None, None, None,
+        );
+        let records = parse_exth_records(&exth);
+        let rec501 = find_record(&records, 501).expect("EXTH 501 should exist");
+        assert_eq!(rec501, b"PDOC", "Default doc_type should be PDOC");
+    }
+
+    #[test]
+    fn test_exth_doc_type_pdoc_explicit() {
+        let exth = build_book_exth(
+            "Test Book", "Author", "2026-01-01", "en",
+            None, None, None, None, false,
+            Some("PDOC"),
+            None, None, None, None,
+        );
+        let records = parse_exth_records(&exth);
+        let rec501 = find_record(&records, 501).expect("EXTH 501 should exist");
+        assert_eq!(rec501, b"PDOC");
+    }
+
+    #[test]
+    fn test_exth_doc_type_ebok() {
+        let exth = build_book_exth(
+            "Test Book", "Author", "2026-01-01", "en",
+            None, None, None, None, false,
+            Some("EBOK"),
+            None, None, None, None,
+        );
+        let records = parse_exth_records(&exth);
+        let rec501 = find_record(&records, 501).expect("EXTH 501 should exist");
+        assert_eq!(rec501, b"EBOK", "doc_type EBOK should produce EXTH 501 = EBOK");
+    }
+
+    #[test]
+    fn test_exth_series_metadata() {
+        let exth = build_book_exth(
+            "One Piece Vol 1", "Eiichiro Oda", "2026-01-01", "en",
+            None, None, None, None, false,
+            None,
+            Some("Luffy begins his adventure"),  // description (103)
+            Some("Manga, Adventure"),             // subject (105)
+            Some("One Piece"),                    // series (112)
+            Some("1"),                            // series_index (113)
+        );
+        let records = parse_exth_records(&exth);
+
+        let desc = find_record(&records, 103).expect("EXTH 103 (description) should exist");
+        assert_eq!(std::str::from_utf8(&desc).unwrap(), "Luffy begins his adventure");
+
+        let subj = find_record(&records, 105).expect("EXTH 105 (subject) should exist");
+        assert_eq!(std::str::from_utf8(&subj).unwrap(), "Manga, Adventure");
+
+        let series = find_record(&records, 112).expect("EXTH 112 (series) should exist");
+        assert_eq!(std::str::from_utf8(&series).unwrap(), "One Piece");
+
+        let si = find_record(&records, 113).expect("EXTH 113 (series_index) should exist");
+        assert_eq!(std::str::from_utf8(&si).unwrap(), "1");
+    }
+
+    #[test]
+    fn test_exth_series_metadata_omitted_when_none() {
+        let exth = build_book_exth(
+            "Standalone Book", "Author", "2026-01-01", "en",
+            None, None, None, None, false,
+            None, None, None, None, None,
+        );
+        let records = parse_exth_records(&exth);
+
+        assert!(find_record(&records, 103).is_none(), "EXTH 103 should be absent when None");
+        assert!(find_record(&records, 105).is_none(), "EXTH 105 should be absent when None");
+        assert!(find_record(&records, 112).is_none(), "EXTH 112 should be absent when None");
+        assert!(find_record(&records, 113).is_none(), "EXTH 113 should be absent when None");
+    }
+
+    #[test]
+    fn test_exth_series_metadata_omitted_when_empty() {
+        let exth = build_book_exth(
+            "Standalone Book", "Author", "2026-01-01", "en",
+            None, None, None, None, false,
+            None,
+            Some(""),  // empty description
+            Some(""),  // empty subject
+            Some(""),  // empty series
+            Some(""),  // empty series_index
+        );
+        let records = parse_exth_records(&exth);
+
+        assert!(find_record(&records, 103).is_none(), "Empty description should not produce EXTH 103");
+        assert!(find_record(&records, 105).is_none(), "Empty subject should not produce EXTH 105");
+        assert!(find_record(&records, 112).is_none(), "Empty series should not produce EXTH 112");
+        assert!(find_record(&records, 113).is_none(), "Empty series_index should not produce EXTH 113");
+    }
+
+    #[test]
+    fn test_exth_header_structure() {
+        // Verify the EXTH block has valid structure: magic, length, record count
+        let exth = build_book_exth(
+            "Test", "Author", "2026-01-01", "en",
+            None, None, None, None, false,
+            Some("EBOK"),
+            Some("A test book"), Some("Fiction"), Some("Test Series"), Some("3"),
+        );
+
+        // Must start with "EXTH"
+        assert_eq!(&exth[0..4], b"EXTH");
+
+        // Length field must match actual length
+        let stated_len = u32::from_be_bytes([exth[4], exth[5], exth[6], exth[7]]) as usize;
+        assert_eq!(stated_len, exth.len(), "EXTH stated length must match actual length");
+
+        // Length must be 4-byte aligned
+        assert_eq!(exth.len() % 4, 0, "EXTH length must be 4-byte aligned");
+    }
+
+    #[test]
+    fn test_exth_dict_unchanged() {
+        // Verify build_exth (dictionary) still works without changes
+        let mut chars = HashSet::new();
+        chars.insert(0x0041); // A
+        chars.insert(0x03B1); // alpha
+        let exth = build_exth(
+            "Test Dict", "Author", "2026-01-01", "en", "el", "en", &chars, false,
+        );
+        assert_eq!(&exth[0..4], b"EXTH");
+        let records = parse_exth_records(&exth);
+        // Should have dictionary language records
+        assert!(find_record(&records, 531).is_some(), "Dict should have EXTH 531");
+        assert!(find_record(&records, 532).is_some(), "Dict should have EXTH 532");
+        // Should NOT have doc_type or series records
+        assert!(find_record(&records, 501).is_none(), "Dict should not have EXTH 501");
+        assert!(find_record(&records, 112).is_none(), "Dict should not have EXTH 112");
+    }
 }

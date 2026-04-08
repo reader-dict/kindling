@@ -8,13 +8,17 @@
 ///     kindling input.epub
 ///     kindling input.opf -o output.mobi -dont_append_source -verbose
 
+mod comic;
 mod epub;
 mod exth;
 mod indx;
 mod kf8;
 mod mobi;
+mod moire;
 mod opf;
 mod palmdoc;
+#[cfg(test)]
+mod tests;
 mod vwi;
 
 use std::path::PathBuf;
@@ -63,6 +67,60 @@ enum Commands {
         /// Identify as kindling in EXTH metadata instead of kindlegen
         #[arg(long)]
         creator_tag: bool,
+    },
+
+    /// Convert comic images/CBZ/CBR to Kindle-optimized MOBI
+    Comic {
+        /// Input image folder, CBZ file, or CBR file
+        input: PathBuf,
+
+        /// Output MOBI file
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Target Kindle device profile
+        #[arg(short, long, default_value = "paperwhite")]
+        device: String,
+
+        /// Right-to-left reading mode (manga). Reverses page order and split order.
+        #[arg(long)]
+        rtl: bool,
+
+        /// Disable double-page spread detection and splitting
+        #[arg(long)]
+        no_split: bool,
+
+        /// Disable automatic border/margin cropping
+        #[arg(long)]
+        no_crop: bool,
+
+        /// Disable auto-contrast and gamma correction
+        #[arg(long)]
+        no_enhance: bool,
+
+        /// Force webtoon mode (vertical strip merge + gutter-aware split)
+        #[arg(long)]
+        webtoon: bool,
+
+        /// Disable Kindle Panel View (tap-to-zoom panels). Panel View is ON by default.
+        #[arg(long)]
+        no_panel_view: bool,
+
+        /// JPEG encoding quality (1-100). Lower values produce smaller files.
+        /// Some Kindle devices may show blank pages with very high quality JPEGs,
+        /// so 70-80 can be a workaround.
+        #[arg(long, default_value = "85", value_parser = clap::value_parser!(u8).range(1..=100))]
+        jpeg_quality: u8,
+
+        /// Maximum pixel height for merged webtoon strips. If the merged strip
+        /// exceeds this, it is split into chunks processed independently.
+        /// Prevents OOM on large webtoon directories.
+        #[arg(long, default_value = "65536")]
+        max_height: u32,
+
+        /// Skip embedding the EPUB source in the MOBI (saves space, breaks Kindle Previewer)
+        #[arg(long)]
+        no_embed_source: bool,
     },
 }
 
@@ -156,7 +214,7 @@ fn do_build(
         }
     } else {
         if embed_source && !is_epub {
-            eprintln!("Note: --embed-source ignored for non-EPUB input");
+            eprintln!("Note: EPUB source embedding skipped for non-EPUB input");
         }
         None
     };
@@ -234,6 +292,62 @@ fn main() {
             } => {
                 let output_path = resolve_output_path(&input, output);
                 do_build(&input, &output_path, no_compress, headwords_only, !no_embed_source, include_cmet, no_hd_images, creator_tag);
+            }
+            Commands::Comic {
+                input,
+                output,
+                device,
+                rtl,
+                no_split,
+                no_crop,
+                no_enhance,
+                webtoon,
+                no_panel_view,
+                jpeg_quality,
+                max_height,
+                no_embed_source,
+            } => {
+                let profile = match comic::get_profile(&device) {
+                    Some(p) => p,
+                    None => {
+                        eprintln!("Error: unknown device '{}'. Valid devices: {}", device, comic::valid_device_names());
+                        process::exit(1);
+                    }
+                };
+
+                let output_path = match output {
+                    Some(p) => p,
+                    None => {
+                        // Default: input path with .mobi extension
+                        if input.is_dir() {
+                            input.with_extension("mobi")
+                        } else {
+                            input.with_extension("mobi")
+                        }
+                    }
+                };
+
+                let options = comic::ComicOptions {
+                    rtl,
+                    split: !no_split,
+                    crop: !no_crop,
+                    enhance: !no_enhance,
+                    webtoon,
+                    panel_view: !no_panel_view,
+                    jpeg_quality,
+                    max_height,
+                    embed_source: !no_embed_source,
+                };
+
+                match comic::build_comic_with_options(&input, &output_path, &profile, &options) {
+                    Ok(()) => {
+                        eprintln!("Comic MOBI built successfully: {}", output_path.display());
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        process::exit(1);
+                    }
+                }
             }
         }
     }

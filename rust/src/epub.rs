@@ -145,6 +145,38 @@ fn find_opf_file(dir: &Path) -> Result<String, Box<dyn std::error::Error>> {
     Err("No .opf file found in EPUB archive".into())
 }
 
+/// Create an EPUB (zip) from a directory of OPF/HTML/image files.
+/// Returns the raw bytes of the EPUB zip.
+pub fn create_epub_from_dir(dir: &Path) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    use std::io::Write;
+    let buf = Vec::new();
+    let cursor = std::io::Cursor::new(buf);
+    let mut zip = zip::ZipWriter::new(cursor);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    // Walk directory and add all files
+    fn add_dir(zip: &mut zip::ZipWriter<std::io::Cursor<Vec<u8>>>, base: &Path, dir: &Path, options: zip::write::SimpleFileOptions) -> Result<(), Box<dyn std::error::Error>> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let name = path.strip_prefix(base)?.to_string_lossy().to_string();
+            if path.is_dir() {
+                add_dir(zip, base, &path, options)?;
+            } else {
+                zip.start_file(&name, options)?;
+                let data = fs::read(&path)?;
+                zip.write_all(&data)?;
+            }
+        }
+        Ok(())
+    }
+
+    add_dir(&mut zip, dir, dir, options)?;
+    let cursor = zip.finish()?;
+    Ok(cursor.into_inner())
+}
+
 /// Clean up the temporary extraction directory.
 pub fn cleanup_temp_dir(temp_dir: &Path) {
     if temp_dir.exists() {

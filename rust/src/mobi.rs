@@ -1660,6 +1660,11 @@ fn build_record0(
             kf8_boundary_record,
             hd_geometry,
             creator_tag,
+            None, // doc_type: default PDOC
+            None, // description
+            None, // subject
+            None, // series
+            None, // series_index
         )
     };
 
@@ -1814,6 +1819,11 @@ fn build_kf8_record0(
         None, // no KF8 boundary in KF8 header itself
         None, // no HD geometry in KF8 header
         creator_tag,
+        None, // doc_type: default PDOC
+        None, // description
+        None, // subject
+        None, // series
+        None, // series_index
     );
 
     // Full name offset
