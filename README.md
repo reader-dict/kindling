@@ -160,12 +160,79 @@ Much of the foundational MOBI format knowledge comes from the [MobileRead wiki](
 
 - **Trailing bytes** (`\x00\x81`): The TBS byte MUST have bit 7 set for the Kindle's backward VWI parser to self-delimit. Using `\x01\x00` (wrong order, no bit 7) destroys all text content.
 - **Inverted VWI**: Tag values use "high bit = stop" encoding (opposite of standard VWI).
-- **EXTH 300** (fontsignature): LE USB/CSB bitfields + shifted codepoints. Tells firmware which Unicode ranges the dictionary covers.
-- **EXTH 531/532**: Dictionary input/output language strings.
-- **EXTH 547** (`InMemory`): Required for dictionary lookup activation.
 - **SRCS record**: Must have 16-byte header (`SRCS` + length + size + count), pointed to by MOBI header offset 208. Required for Kindle Previewer.
-- **MOBI header offset 112**: Must be `0x4850` for Kindle Previewer compatibility.
 - **Dictionary links**: Anchor links work when browsing the dictionary as a book, but are disabled in the lookup popup. See the [Amazon Kindle Publishing Guidelines](http://kindlegen.s3.amazonaws.com/AmazonKindlePublishingGuidelines.pdf), section 15.6.1.
+
+### MOBI header fields
+
+All offsets are relative to the MOBI magic (`MOBI` at byte 16 of Record 0).
+
+| Offset | Size | Field | Notes |
+|--------|------|-------|-------|
+| 0 | 4 | Magic | Always `MOBI` |
+| 4 | 4 | Header length | 264 bytes for Kindling output |
+| 8 | 4 | MOBI type | 2 for both books and dictionaries |
+| 12 | 4 | Text encoding | 65001 = UTF-8 |
+| 16 | 4 | Unique ID | MD5 hash of title |
+| 20 | 4 | File version | 6 for KF7 dictionaries, 8 for KF8 books |
+| 24 | 4 | Orth index record | First INDX record for dictionary lookup. `0xFFFFFFFF` = no dictionary |
+| 28 | 4 | Inflection index | `0xFFFFFFFF` (Kindling uses orth-only, no inflection INDX) |
+| 64 | 4 | First non-book record | First record after text (images, INDX, etc.) |
+| 68 | 4 | Full name offset | Byte offset of full title within Record 0 |
+| 72 | 4 | Full name length | Length of full title in bytes |
+| 76 | 4 | Language code | Locale code for book language |
+| 80 | 4 | Input language | Dictionary source language locale code |
+| 84 | 4 | Output language | Dictionary target language locale code |
+| 88 | 4 | Min version | Minimum reader version required |
+| 92 | 4 | First image record | First image record index |
+| 112 | 4 | Capability marker | Must be `0x4850` for Kindle Previewer compatibility |
+| 208 | 4 | SRCS index | Record index of embedded EPUB source. `0xFFFFFFFF` = none |
+
+### EXTH records
+
+EXTH records are type-length-value metadata entries in Record 0, following the MOBI header.
+
+| Record | Name | Used in | Value | Notes |
+|--------|------|---------|-------|-------|
+| 100 | Author | Both | UTF-8 string | |
+| 103 | Description | Books | UTF-8 string | Maps to ComicInfo.xml `<Summary>` |
+| 105 | Subject | Books | UTF-8 string | Maps to ComicInfo.xml `<Genre>` |
+| 106 | Publishing date | Both | UTF-8 string | |
+| 112 | Series | Books | UTF-8 string | Calibre `calibre:series` |
+| 113 | Series index | Books | UTF-8 string | Calibre `calibre:series_index` |
+| 121 | KF8 boundary | Books | u32 BE | Record index of KF8 Record 0 |
+| 122 | Fixed layout | Books | `"true"` | Present only for fixed-layout content |
+| 125 | (unknown) | Both | u32 BE | 1 for dictionaries, 21 for books |
+| 131 | (unknown) | Both | u32 BE = 0 | |
+| 201 | Cover offset | Books | u32 BE | Image record offset for cover |
+| 202 | Thumbnail offset | Books | u32 BE | Image record offset for thumbnail |
+| 204 | Creator platform | Both | u32 BE | 201 = Mac (*kindlegen* compat), 300 = Kindling |
+| 205 | Creator major version | Both | u32 BE | |
+| 206 | Creator minor version | Both | u32 BE | |
+| 207 | Creator build | Both | u32 BE | |
+| 300 | Fontsignature | Dicts | 242 bytes | LE USB/CSB bitfields + shifted codepoints. Tells firmware which Unicode ranges the dictionary covers |
+| 307 | Resolution | Books | UTF-8 string | Fixed-layout viewport resolution (e.g. `"1072x1448"`) |
+| 501 | Document type | Books | ASCII string | See table below. **Not written for dictionaries** - *kindlegen* omits it for dicts and Kindle recognizes dicts via orth index + EXTH 547 instead |
+| 524 | Language | Both | UTF-8 string | BCP47/ISO 639 language code |
+| 525 | Writing mode | Both | UTF-8 string | `"horizontal-lr"` or `"horizontal-rl"` |
+| 527 | Page progression | Books | UTF-8 string | Fixed-layout page direction |
+| 531 | Dict input language | Dicts | UTF-8 string | Source language ISO 639 code (e.g. `"el"`) |
+| 532 | Dict output language | Dicts | UTF-8 string | Target language ISO 639 code (e.g. `"en"`) |
+| 535 | Creator string | Both | UTF-8 string | `"0730-890adc2"` for *kindlegen* compat, `"kindling-X.Y.Z"` with `--creator-tag` |
+| 536 | HD image geometry | Books | UTF-8 string | `"WxH:start-end\|"` format for HD image container |
+| 542 | Content hash | Both | 4 bytes | MD5 prefix of title |
+| 547 | InMemory | Both | `"InMemory"` | Required. Activates dictionary lookup for dicts. Also written for books |
+
+### EXTH 501 values (document type)
+
+Controls where the content appears on the Kindle home screen.
+
+| Value | Meaning | Notes |
+|-------|---------|-------|
+| `EBOK` | Books shelf | **Warning**: Amazon may auto-delete sideloaded EBOK files when the Kindle connects to WiFi, since it checks whether the ASIN is in the user's purchase history |
+| `PDOC` | Documents shelf | Safe default for sideloaded content |
+
+Dictionaries do NOT use EXTH 501. The Kindle identifies dictionaries by the combination of a valid orth index (MOBI header offset 24), EXTH 531/532 language records, and EXTH 547 `InMemory`. Adding an unrecognized EXTH 501 value (e.g. `"DICT"`) can prevent the Kindle from recognizing the file as a dictionary.
 
 ## Related projects
 
