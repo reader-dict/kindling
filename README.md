@@ -243,7 +243,7 @@ Dictionaries do NOT use EXTH 501. The Kindle identifies dictionaries by the comb
 Tests run automatically on every push and pull request via [GitHub Actions](.github/workflows/test.yml).
 
 ```bash
-cd rust && cargo test
+cd rust && cargo test -- --show-output
 ```
 
 The test suite covers:

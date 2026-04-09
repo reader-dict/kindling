@@ -60,12 +60,14 @@ mod tests {
         assert_eq!(encode_vwi(0), vec![0x00]);
         assert_eq!(encode_vwi(1), vec![0x01]);
         assert_eq!(encode_vwi(127), vec![0x7F]);
+        println!("  \u{2713} VWI encode: 0->[00], 1->[01], 127->[7F]");
     }
 
     #[test]
     fn test_encode_vwi_large() {
         assert_eq!(encode_vwi(128), vec![0x81, 0x00]);
         assert_eq!(encode_vwi(300), vec![0x82, 0x2C]);
+        println!("  \u{2713} VWI encode: 128->[81,00], 300->[82,2C]");
     }
 
     #[test]
@@ -73,11 +75,13 @@ mod tests {
         assert_eq!(encode_vwi_inv(0), vec![0x80]);
         assert_eq!(encode_vwi_inv(1), vec![0x81]);
         assert_eq!(encode_vwi_inv(127), vec![0xFF]);
+        println!("  \u{2713} VWI inv encode: 0->[80], 1->[81], 127->[FF]");
     }
 
     #[test]
     fn test_encode_vwi_inv_large() {
         assert_eq!(encode_vwi_inv(128), vec![0x01, 0x80]);
         assert_eq!(encode_vwi_inv(300), vec![0x02, 0xAC]);
+        println!("  \u{2713} VWI inv encode: 128->[01,80], 300->[02,AC]");
     }
 }

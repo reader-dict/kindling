@@ -85,6 +85,7 @@ mod tests {
             original_diff,
             filtered_diff,
         );
+        println!("  \u{2713} Grayscale moire: contrast diff {} -> {}", original_diff, filtered_diff);
     }
 
     #[test]
@@ -95,6 +96,7 @@ mod tests {
         remove_moire(&mut img);
         assert_eq!(img.width(), 32);
         assert_eq!(img.height(), 32);
+        println!("  \u{2713} RGB 32x32 moire filter ran without error");
     }
 
     #[test]
@@ -107,5 +109,6 @@ mod tests {
             assert_eq!(img.width(), w);
             assert_eq!(img.height(), h);
         }
+        println!("  \u{2713} All 4 sizes preserved dimensions after moire filter");
     }
 }

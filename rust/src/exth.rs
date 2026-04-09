@@ -544,6 +544,7 @@ mod tests {
         let records = parse_exth_records(&exth);
         let rec501 = find_record(&records, 501).expect("EXTH 501 should exist");
         assert_eq!(rec501, b"PDOC", "Default doc_type should be PDOC");
+        println!("  \u{2713} EXTH 501 default = PDOC");
     }
 
     #[test]
@@ -557,6 +558,7 @@ mod tests {
         let records = parse_exth_records(&exth);
         let rec501 = find_record(&records, 501).expect("EXTH 501 should exist");
         assert_eq!(rec501, b"PDOC");
+        println!("  \u{2713} EXTH 501 explicit = PDOC");
     }
 
     #[test]
@@ -570,6 +572,7 @@ mod tests {
         let records = parse_exth_records(&exth);
         let rec501 = find_record(&records, 501).expect("EXTH 501 should exist");
         assert_eq!(rec501, b"EBOK", "doc_type EBOK should produce EXTH 501 = EBOK");
+        println!("  \u{2713} EXTH 501 = EBOK");
     }
 
     #[test]
@@ -596,6 +599,7 @@ mod tests {
 
         let si = find_record(&records, 113).expect("EXTH 113 (series_index) should exist");
         assert_eq!(std::str::from_utf8(&si).unwrap(), "1");
+        println!("  \u{2713} Series metadata: 103/105/112/113 all present and correct");
     }
 
     #[test]
@@ -611,6 +615,7 @@ mod tests {
         assert!(find_record(&records, 105).is_none(), "EXTH 105 should be absent when None");
         assert!(find_record(&records, 112).is_none(), "EXTH 112 should be absent when None");
         assert!(find_record(&records, 113).is_none(), "EXTH 113 should be absent when None");
+        println!("  \u{2713} EXTH 103/105/112/113 all absent when None");
     }
 
     #[test]
@@ -630,6 +635,7 @@ mod tests {
         assert!(find_record(&records, 105).is_none(), "Empty subject should not produce EXTH 105");
         assert!(find_record(&records, 112).is_none(), "Empty series should not produce EXTH 112");
         assert!(find_record(&records, 113).is_none(), "Empty series_index should not produce EXTH 113");
+        println!("  \u{2713} EXTH 103/105/112/113 all absent when empty string");
     }
 
     #[test]
@@ -651,6 +657,7 @@ mod tests {
 
         // Length must be 4-byte aligned
         assert_eq!(exth.len() % 4, 0, "EXTH length must be 4-byte aligned");
+        println!("  \u{2713} EXTH header: magic ok, length={}, 4-byte aligned", stated_len);
     }
 
     #[test]
@@ -670,5 +677,6 @@ mod tests {
         // Should NOT have doc_type or series records
         assert!(find_record(&records, 501).is_none(), "Dict should not have EXTH 501");
         assert!(find_record(&records, 112).is_none(), "Dict should not have EXTH 112");
+        println!("  \u{2713} Dict EXTH: has 531/532, no 501/112");
     }
 }

@@ -149,12 +149,14 @@ mod tests {
     #[test]
     fn test_compress_empty() {
         assert_eq!(compress(b""), Vec::<u8>::new());
+        println!("  \u{2713} Compressing empty input yields empty output");
     }
 
     #[test]
     fn test_compress_short() {
         let compressed = compress(b"hello");
         assert!(!compressed.is_empty());
+        println!("  \u{2713} Compressed 5 bytes to {} bytes", compressed.len());
     }
 
     #[test]
@@ -163,5 +165,6 @@ mod tests {
         let compressed = compress(data);
         // Compressed should be smaller than original due to LZ77 matches
         assert!(compressed.len() <= data.len());
+        println!("  \u{2713} Repeated data: {} -> {} bytes", data.len(), compressed.len());
     }
 }

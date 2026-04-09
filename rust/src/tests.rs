@@ -277,6 +277,7 @@ mod tests {
         // Type = "BOOK" at offset 60, Creator = "MOBI" at offset 64
         assert_eq!(&data[60..64], b"BOOK");
         assert_eq!(&data[64..68], b"MOBI");
+        println!("  \u{2713} PalmDB type=BOOK, creator=MOBI");
     }
 
     #[test]
@@ -286,6 +287,7 @@ mod tests {
         let data = build_mobi_bytes(&opf, dir.path(), true, false, None);
         let (_, record_count, _) = parse_palmdb(&data);
         assert!(record_count > 0, "Record count should be > 0, got {}", record_count);
+        println!("  \u{2713} Record count: {}", record_count);
     }
 
     #[test]
@@ -316,6 +318,7 @@ mod tests {
                 data.len()
             );
         }
+        println!("  \u{2713} {} offsets monotonic and in bounds", offsets.len());
     }
 
     #[test]
@@ -335,6 +338,7 @@ mod tests {
             "PalmDB name too long: {} bytes",
             name_len
         );
+        println!("  \u{2713} PalmDB name null-terminated, length={}", name_len);
     }
 
     // =======================================================================
@@ -351,6 +355,7 @@ mod tests {
 
         // MOBI magic starts at offset 16 in record 0 (after PalmDOC header)
         assert_eq!(&rec0[16..20], b"MOBI", "MOBI magic not found at expected position");
+        println!("  \u{2713} MOBI magic at rec0 offset 16");
     }
 
     #[test]
@@ -363,6 +368,7 @@ mod tests {
 
         let header_len = read_u32_be(rec0, 20); // offset 16+4 in rec0 = MOBI header length
         assert_eq!(header_len, 264, "MOBI header length should be 264, got {}", header_len);
+        println!("  \u{2713} MOBI header length: {}", header_len);
     }
 
     #[test]
@@ -375,6 +381,7 @@ mod tests {
 
         let encoding = read_u32_be(rec0, 28); // PalmDOC(16) + "MOBI"(4) + len(4) + type(4) + encoding(4)
         assert_eq!(encoding, 65001, "Encoding should be 65001 (UTF-8), got {}", encoding);
+        println!("  \u{2713} MOBI encoding: {} (UTF-8)", encoding);
     }
 
     #[test]
@@ -387,6 +394,7 @@ mod tests {
 
         let mobi_type = read_u32_be(rec0, 24); // offset 16 + 8 in rec0
         assert_eq!(mobi_type, 2, "MOBI type should be 2, got {}", mobi_type);
+        println!("  \u{2713} MOBI type: {}", mobi_type);
     }
 
     #[test]
@@ -403,6 +411,7 @@ mod tests {
             "MOBI version should be 6 or 7, got {}",
             version
         );
+        println!("  \u{2713} MOBI version: {}", version);
     }
 
     /// Regression test for d4febe6: dictionaries must use 0x50 at MOBI header
@@ -423,6 +432,7 @@ mod tests {
             "Dictionary capability marker at offset 112 should be 0x50, got 0x{:X}",
             cap_marker
         );
+        println!("  \u{2713} Dict capability marker: 0x{:X}", cap_marker);
     }
 
     #[test]
@@ -441,6 +451,7 @@ mod tests {
             "Book capability marker at offset 112 should be 0x4850, got 0x{:X}",
             cap_marker
         );
+        println!("  \u{2713} Book capability marker: 0x{:X}", cap_marker);
     }
 
     // =======================================================================
@@ -465,6 +476,7 @@ mod tests {
         // Orth index record at MOBI header offset 24 (record0 offset 16+24 = 40)
         let orth_idx = read_u32_be(rec0, 40);
         assert_ne!(orth_idx, 0xFFFFFFFF, "Dictionary should have orth_index != 0xFFFFFFFF");
+        println!("  \u{2713} Dict orth_index: {}", orth_idx);
     }
 
     #[test]
@@ -492,6 +504,7 @@ mod tests {
             b"INDX",
             "INDX record should start with INDX magic"
         );
+        println!("  \u{2713} INDX record at index {}, magic ok", orth_idx);
     }
 
     #[test]
@@ -509,6 +522,7 @@ mod tests {
         assert!(exth.contains_key(&531), "Dictionary EXTH should contain record 531 (DictionaryInLanguage)");
         assert!(exth.contains_key(&532), "Dictionary EXTH should contain record 532 (DictionaryOutLanguage)");
         assert!(exth.contains_key(&547), "Dictionary EXTH should contain record 547 (InMemory)");
+        println!("  \u{2713} Dict EXTH has 531, 532, 547");
     }
 
     #[test]
@@ -534,6 +548,7 @@ mod tests {
             "Headword count should match input (3), got {}",
             total_entries
         );
+        println!("  \u{2713} INDX headword count: {}", total_entries);
     }
 
     // =======================================================================
@@ -556,6 +571,7 @@ mod tests {
             "Book should have orth_index == 0xFFFFFFFF, got 0x{:08X}",
             orth_idx
         );
+        println!("  \u{2713} Book orth_index: 0x{:08X}", orth_idx);
     }
 
     #[test]
@@ -577,6 +593,7 @@ mod tests {
             img_rec.len() >= 2 && img_rec[0] == 0xFF && img_rec[1] == 0xD8,
             "Image record should start with JPEG magic (FF D8)"
         );
+        println!("  \u{2713} Image record at index {}, starts with JPEG magic FF D8", first_img);
     }
 
     #[test]
@@ -597,6 +614,7 @@ mod tests {
             }
         }
         assert!(found_boundary, "Book MOBI should contain a BOUNDARY record for KF8 dual format");
+        println!("  \u{2713} BOUNDARY record found in dual-format book");
     }
 
     #[test]
@@ -629,6 +647,7 @@ mod tests {
         // KF8 version should be 8
         let kf8_version = read_u32_be(kf8_rec0, 36);
         assert_eq!(kf8_version, 8, "KF8 version should be 8, got {}", kf8_version);
+        println!("  \u{2713} KF8 section after BOUNDARY at idx {}, version={}", boundary_idx + 1, kf8_version);
     }
 
     // =======================================================================
@@ -675,6 +694,7 @@ mod tests {
         // Min version at MOBI header offset 88 (rec0 offset 104)
         let min_version = read_u32_be(rec0, 104);
         assert_eq!(min_version, 8, "KF8-only min_version should be 8, got {}", min_version);
+        println!("  \u{2713} KF8-only rec0: version={}, min_version={}", version, min_version);
     }
 
     #[test]
@@ -703,6 +723,7 @@ mod tests {
         assert_eq!(&rec0[16..20], b"MOBI");
         let version = read_u32_be(rec0, 36);
         assert_eq!(version, 8, "The sole Record 0 should be version 8 (KF8)");
+        println!("  \u{2713} KF8-only: no KF7/KF8 BOUNDARY, sole rec0 version={}", version);
     }
 
     #[test]
@@ -720,6 +741,7 @@ mod tests {
             !exth.contains_key(&121),
             "KF8-only should not have EXTH 121 (KF8 boundary pointer)"
         );
+        println!("  \u{2713} KF8-only: no EXTH 121 boundary pointer");
     }
 
     #[test]
@@ -745,6 +767,7 @@ mod tests {
             img_rec.len() >= 2 && img_rec[0] == 0xFF && img_rec[1] == 0xD8,
             "Image record should start with JPEG magic (FF D8)"
         );
+        println!("  \u{2713} KF8-only: image at index {}, JPEG magic ok", first_img);
     }
 
     #[test]
@@ -765,6 +788,7 @@ mod tests {
             }
         }
         assert!(found_fdst, "KF8-only should contain an FDST record");
+        println!("  \u{2713} KF8-only: FDST record found");
     }
 
     #[test]
@@ -781,6 +805,7 @@ mod tests {
             &[0xE9, 0x8E, 0x0D, 0x0A],
             "Last record should be EOF marker"
         );
+        println!("  \u{2713} KF8-only: last record is EOF marker (E9 8E 0D 0A)");
     }
 
     #[test]
@@ -800,6 +825,7 @@ mod tests {
             kf8_data.len(),
             dual_data.len()
         );
+        println!("  \u{2713} KF8-only {} bytes < dual {} bytes", kf8_data.len(), dual_data.len());
     }
 
     #[test]
@@ -816,6 +842,7 @@ mod tests {
             exth.contains_key(&547),
             "KF8-only should have EXTH 547 (InMemory)"
         );
+        println!("  \u{2713} KF8-only: EXTH 547 (InMemory) present");
     }
 
     // =======================================================================
@@ -832,6 +859,7 @@ mod tests {
 
         let has_exth = rec0.windows(4).any(|w| w == b"EXTH");
         assert!(has_exth, "Record 0 should contain EXTH magic");
+        println!("  \u{2713} EXTH magic found in record 0");
     }
 
     #[test]
@@ -846,6 +874,7 @@ mod tests {
         assert!(exth.contains_key(&531), "Dict EXTH should contain 531");
         assert!(exth.contains_key(&532), "Dict EXTH should contain 532");
         assert!(exth.contains_key(&547), "Dict EXTH should contain 547");
+        println!("  \u{2713} Dict EXTH: records 531, 532, 547 all present");
     }
 
     #[test]
@@ -858,6 +887,7 @@ mod tests {
         let exth = parse_exth_records(rec0);
 
         assert!(exth.contains_key(&547), "Book EXTH should contain 547 (InMemory)");
+        println!("  \u{2713} Book EXTH 547 (InMemory) present");
     }
 
     #[test]
@@ -873,6 +903,7 @@ mod tests {
         let exth535 = exth.get(&535).expect("EXTH 535 should exist");
         let value = std::str::from_utf8(&exth535[0]).unwrap();
         assert_eq!(value, "0730-890adc2", "Default EXTH 535 should be '0730-890adc2', got '{}'", value);
+        println!("  \u{2713} EXTH 535 = '{}'", value);
     }
 
     // =======================================================================
@@ -930,6 +961,7 @@ mod tests {
         let compressed = palmdoc::compress(b"");
         let decompressed = palmdoc_decompress(&compressed);
         assert_eq!(decompressed, b"");
+        println!("  \u{2713} Empty input roundtrips to empty output");
     }
 
     #[test]
@@ -942,6 +974,7 @@ mod tests {
             input.as_slice(),
             "Roundtrip failed for short input"
         );
+        println!("  \u{2713} Short input roundtrip: {} -> {} -> {} bytes", input.len(), compressed.len(), decompressed.len());
     }
 
     #[test]
@@ -954,6 +987,7 @@ mod tests {
             input.as_slice(),
             "Roundtrip failed for 4096-byte input"
         );
+        println!("  \u{2713} 4096-byte roundtrip: compressed to {} bytes", compressed.len());
     }
 
     #[test]
@@ -969,6 +1003,7 @@ mod tests {
             input.as_slice(),
             "Roundtrip failed for multi-record input"
         );
+        println!("  \u{2713} Multi-record roundtrip: {} -> {} bytes", input.len(), compressed.len());
     }
 
     #[test]
@@ -981,6 +1016,7 @@ mod tests {
             input,
             "Roundtrip failed for UTF-8 input"
         );
+        println!("  \u{2713} UTF-8 roundtrip: {} -> {} bytes", input.len(), compressed.len());
     }
 
     // =======================================================================
@@ -1018,6 +1054,7 @@ mod tests {
         // Data length at offset 8
         let data_len = read_u32_be(srcs_rec, 8) as usize;
         assert_eq!(data_len, fake_epub.len(), "SRCS data length mismatch");
+        println!("  \u{2713} SRCS at index {}, header_len={}, data_len={}", srcs_idx, header_len, data_len);
     }
 
     #[test]
@@ -1041,6 +1078,7 @@ mod tests {
         // Verify it actually points to a record starting with "SRCS"
         let srcs_rec = get_record(&data, &offsets, srcs_from_header as usize);
         assert_eq!(&srcs_rec[0..4], b"SRCS", "Record pointed to by MOBI header offset 208 should be SRCS");
+        println!("  \u{2713} MOBI header offset 208 -> SRCS record {}", srcs_from_header);
     }
 
     // =======================================================================
@@ -1086,6 +1124,7 @@ mod tests {
         let exth122 = exth.get(&122).expect("Comic EXTH should contain record 122 (fixed-layout)");
         let value = std::str::from_utf8(&exth122[0]).unwrap();
         assert_eq!(value, "true", "EXTH 122 should be 'true' for fixed-layout");
+        println!("  \u{2713} Comic pipeline: {} bytes, EXTH 122=true", data.len());
     }
 
     // =======================================================================
@@ -1100,6 +1139,7 @@ mod tests {
             image::RgbImage::from_fn(200, 100, |_, _| image::Rgb([128, 128, 128])),
         );
         assert!(comic::is_double_page_spread(&wide), "200x100 should be detected as spread");
+        println!("  \u{2713} 200x100 landscape detected as spread");
     }
 
     #[test]
@@ -1110,6 +1150,7 @@ mod tests {
             image::RgbImage::from_fn(100, 200, |_, _| image::Rgb([128, 128, 128])),
         );
         assert!(!comic::is_double_page_spread(&tall), "100x200 should not be detected as spread");
+        println!("  \u{2713} 100x200 portrait not a spread");
     }
 
     #[test]
@@ -1120,6 +1161,7 @@ mod tests {
             image::RgbImage::from_fn(100, 100, |_, _| image::Rgb([128, 128, 128])),
         );
         assert!(!comic::is_double_page_spread(&square), "100x100 should not be detected as spread");
+        println!("  \u{2713} 100x100 square not a spread");
     }
 
     #[test]
@@ -1143,6 +1185,7 @@ mod tests {
         let right_rgb = right.to_rgb8();
         assert!(left_rgb.get_pixel(50, 50).0[0] < 100, "Left half should be dark");
         assert!(right_rgb.get_pixel(50, 50).0[0] > 100, "Right half should be bright");
+        println!("  \u{2713} Spread split: 200x100 -> two 100x100 halves, content correct");
     }
 
     #[test]
@@ -1169,6 +1212,7 @@ mod tests {
         // The content area is 80x80 (from 10..90), so cropped should be close to that
         assert!(w >= 70 && w <= 85, "Cropped width should be ~80, got {}", w);
         assert!(h >= 70 && h <= 85, "Cropped height should be ~80, got {}", h);
+        println!("  \u{2713} White border crop: 100x100 -> {}x{}", w, h);
     }
 
     #[test]
@@ -1190,6 +1234,7 @@ mod tests {
         let (w, h) = cropped.dimensions();
         assert!(w < 100, "Cropped width ({}) should be less than 100", w);
         assert!(h < 100, "Cropped height ({}) should be less than 100", h);
+        println!("  \u{2713} Black border crop: 100x100 -> {}x{}", w, h);
     }
 
     #[test]
@@ -1207,6 +1252,7 @@ mod tests {
         let (w, h) = cropped.dimensions();
         assert_eq!(w, 100, "No-border image should not be cropped (width)");
         assert_eq!(h, 100, "No-border image should not be cropped (height)");
+        println!("  \u{2713} No-border image unchanged at {}x{}", w, h);
     }
 
     #[test]
@@ -1229,6 +1275,7 @@ mod tests {
         let (w, h) = cropped.dimensions();
         assert_eq!(w, 1000, "Thin border (<2%) should not be cropped (width)");
         assert_eq!(h, 1000, "Thin border (<2%) should not be cropped (height)");
+        println!("  \u{2713} Thin border (<2%) ignored, still {}x{}", w, h);
     }
 
     #[test]
@@ -1256,6 +1303,7 @@ mod tests {
         // The range should be significantly expanded from the original 50
         let range = max_val as i32 - min_val as i32;
         assert!(range > 100, "Enhanced image range should be > 100, got {} (min={}, max={})", range, min_val, max_val);
+        println!("  \u{2713} Histogram expanded: range {} (min={}, max={})", range, min_val, max_val);
     }
 
     #[test]
@@ -1270,6 +1318,7 @@ mod tests {
         let enhanced = comic::enhance_image(&img);
         let (w, h) = enhanced.dimensions();
         assert_eq!((w, h), (50, 50), "Uniform image dimensions should not change");
+        println!("  \u{2713} Uniform image unchanged at {}x{}", w, h);
     }
 
     #[test]
@@ -1295,6 +1344,7 @@ mod tests {
         assert_eq!(meta.inkers, vec!["Bob Inker"]);
         assert_eq!(meta.summary.as_deref(), Some("A thrilling adventure story."));
         assert!(!meta.manga_rtl, "Should not be manga by default");
+        println!("  \u{2713} ComicInfo parsed: title, series, number, writers, pencillers, inkers, summary");
     }
 
     #[test]
@@ -1308,6 +1358,7 @@ mod tests {
 
         let meta = comic::parse_comic_info_xml(xml).expect("Failed to parse");
         assert!(meta.manga_rtl, "Manga=YesAndRightToLeft should enable RTL");
+        println!("  \u{2713} Manga=YesAndRightToLeft -> RTL enabled");
     }
 
     #[test]
@@ -1316,6 +1367,7 @@ mod tests {
         let xml = r#"<ComicInfo><Manga>Yes</Manga></ComicInfo>"#;
         let meta = comic::parse_comic_info_xml(xml).expect("Failed to parse");
         assert!(meta.manga_rtl, "Manga=Yes should enable RTL");
+        println!("  \u{2713} Manga=Yes -> RTL enabled");
     }
 
     #[test]
@@ -1328,7 +1380,9 @@ mod tests {
 </ComicInfo>"#;
 
         let meta = comic::parse_comic_info_xml(xml).unwrap();
-        assert_eq!(meta.effective_title(), Some("Epic Saga #5 - The Return".to_string()));
+        let title = meta.effective_title();
+        assert_eq!(title, Some("Epic Saga #5 - The Return".to_string()));
+        println!("  \u{2713} Effective title: '{}'", title.unwrap());
     }
 
     #[test]
@@ -1340,7 +1394,9 @@ mod tests {
 </ComicInfo>"#;
 
         let meta = comic::parse_comic_info_xml(xml).unwrap();
-        assert_eq!(meta.effective_title(), Some("Monthly Comics #12".to_string()));
+        let title = meta.effective_title();
+        assert_eq!(title, Some("Monthly Comics #12".to_string()));
+        println!("  \u{2713} Effective title: '{}'", title.unwrap());
     }
 
     #[test]
@@ -1354,6 +1410,7 @@ mod tests {
         let meta = comic::parse_comic_info_xml(xml).unwrap();
         let creators = meta.creators();
         assert_eq!(creators, vec!["Alice", "Bob", "Charlie"]);
+        println!("  \u{2713} Creators combined: {:?}", creators);
     }
 
     #[test]
@@ -1364,6 +1421,7 @@ mod tests {
         assert!(meta.title.is_none());
         assert!(meta.series.is_none());
         assert!(!meta.manga_rtl);
+        println!("  \u{2713} Empty ComicInfo: no title, no series, no RTL");
     }
 
     #[test]
@@ -1417,6 +1475,7 @@ mod tests {
         let exth525 = exth.get(&525).expect("RTL comic should have EXTH 525");
         let wm = std::str::from_utf8(&exth525[0]).unwrap();
         assert_eq!(wm, "horizontal-rl", "EXTH 525 should be 'horizontal-rl', got '{}'", wm);
+        println!("  \u{2713} RTL comic: EXTH 527=rtl, EXTH 525=horizontal-rl");
     }
 
     #[test]
@@ -1444,6 +1503,7 @@ mod tests {
         let exth525 = exth.get(&525).expect("LTR comic should have EXTH 525");
         let wm = std::str::from_utf8(&exth525[0]).unwrap();
         assert_eq!(wm, "horizontal-lr", "EXTH 525 should be 'horizontal-lr' for LTR, got '{}'", wm);
+        println!("  \u{2713} LTR comic: EXTH 525=horizontal-lr");
     }
 
     #[test]
@@ -1482,6 +1542,7 @@ mod tests {
 
         // Verify we got a valid MOBI (the spread should have been split into 2 pages)
         assert_eq!(&data[60..64], b"BOOK");
+        println!("  \u{2713} Spread split pipeline: {} bytes, valid MOBI", data.len());
     }
 
     #[test]
@@ -1527,6 +1588,7 @@ mod tests {
             "Split version should have more records ({}) than no-split ({})",
             rc_split, rc_nosplit
         );
+        println!("  \u{2713} Split {} records > no-split {} records", rc_split, rc_nosplit);
     }
 
     #[test]
@@ -1555,6 +1617,7 @@ mod tests {
 
         let data = fs::read(&output_path).unwrap();
         assert!(data.len() > 100, "Color comic MOBI should be valid");
+        println!("  \u{2713} Color device with enhance=true: {} bytes, valid", data.len());
     }
 
     #[test]
@@ -1609,6 +1672,7 @@ mod tests {
         let exth525 = exth.get(&525).expect("Manga comic should have EXTH 525");
         let wm = std::str::from_utf8(&exth525[0]).unwrap();
         assert_eq!(wm, "horizontal-rl", "Manga comic EXTH 525 should be 'horizontal-rl', got '{}'", wm);
+        println!("  \u{2713} ComicInfo.xml auto-RTL: EXTH 527=rtl, 525=horizontal-rl");
     }
 
     // =======================================================================
@@ -1625,6 +1689,7 @@ mod tests {
         // Title is "Test Dict" - should map to "Test_Dict" (< 27 chars, no truncation)
         let name = std::str::from_utf8(&name_bytes[..9]).unwrap();
         assert_eq!(name, "Test_Dict", "Short title should not be truncated");
+        println!("  \u{2713} Short title PalmDB name: '{}'", name);
     }
 
     #[test]
@@ -1676,6 +1741,7 @@ mod tests {
 
         let name = std::str::from_utf8(&name_bytes[..name_len]).unwrap();
         assert!(name.contains('-'), "Truncated name should contain '-' separator: '{}'", name);
+        println!("  \u{2713} Long title truncated to {} bytes: '{}'", name_len, name);
     }
 
     #[test]
@@ -1718,6 +1784,7 @@ mod tests {
         assert!(!name.contains(')'), "Name should not contain ')': '{}'", name);
         assert!(!name.contains('['), "Name should not contain '[': '{}'", name);
         assert!(!name.contains(']'), "Name should not contain ']': '{}'", name);
+        println!("  \u{2713} Special chars stripped: '{}'", name);
     }
 
     // =======================================================================
@@ -1808,6 +1875,7 @@ mod tests {
                 );
             }
         }
+        println!("  \u{2713} JFIF density_units patched from 0x00 to 0x01");
     }
 
     // =======================================================================
@@ -1846,6 +1914,7 @@ mod tests {
         let rec0_u = get_record(&data_u, &offsets_u, 0);
         let comp_type_u = read_u16_be(rec0_u, 0);
         assert_eq!(comp_type_u, 1, "Uncompressed MOBI should have compression type 1");
+        println!("  \u{2713} Compressed type={}, uncompressed type={}", comp_type_c, comp_type_u);
     }
 
     #[test]
@@ -1878,6 +1947,7 @@ mod tests {
         assert!(found_flis, "MOBI should contain a FLIS record");
         assert!(found_fcis, "MOBI should contain a FCIS record");
         assert!(found_eof, "MOBI should contain an EOF record");
+        println!("  \u{2713} FLIS, FCIS, and EOF records all present");
     }
 
     // =======================================================================
@@ -1926,6 +1996,7 @@ mod tests {
         // Empty input should not be webtoon
         let empty: Vec<std::path::PathBuf> = vec![];
         assert!(!comic::detect_webtoon(&empty), "Empty input should not be detected as webtoon");
+        println!("  \u{2713} Webtoon detection: tall=yes, mixed=no, normal=no, empty=no");
     }
 
     #[test]
@@ -1957,6 +2028,7 @@ mod tests {
         // img2 is narrower (80px), centered on 100px canvas, so center should be green
         let bottom_pixel = merged_rgb.get_pixel(50, 250);
         assert_eq!(bottom_pixel.0, [0, 255, 0], "Bottom center should be from img2 (green)");
+        println!("  \u{2713} Webtoon merge: {}x{}, top=red, bottom=green", w, h);
     }
 
     #[test]
@@ -1971,6 +2043,7 @@ mod tests {
         let merged = comic::webtoon_merge(&[img.clone()]);
         let (w, h) = merged.dimensions();
         assert_eq!((w, h), (100, 500), "Single image merge should return same dimensions");
+        println!("  \u{2713} Single-image merge: {}x{} unchanged", w, h);
     }
 
     #[test]
@@ -2005,6 +2078,7 @@ mod tests {
         // Right edge (x=199) in bottom half should be background (white)
         let right_bg = rgb.get_pixel(199, 150);
         assert_eq!(right_bg.0, [255, 255, 255], "Right padding should be white background");
+        println!("  \u{2713} Merge centering: narrow img centered on {}x{} canvas", w, h);
     }
 
     #[test]
@@ -2045,6 +2119,7 @@ mod tests {
         // Total height of all pages should equal original strip height
         let total_h: u32 = pages.iter().map(|p| p.height()).sum();
         assert_eq!(total_h, strip_height, "Sum of page heights ({}) should equal strip height ({})", total_h, strip_height);
+        println!("  \u{2713} Webtoon split: {} pages, total height={}", pages.len(), total_h);
     }
 
     #[test]
@@ -2071,6 +2146,7 @@ mod tests {
         // Total height should still equal original
         let total_h: u32 = pages.iter().map(|p| p.height()).sum();
         assert_eq!(total_h, strip_height, "Sum of page heights should equal strip height");
+        println!("  \u{2713} Hard-cut split: {} pages, total height={}", pages.len(), total_h);
     }
 
     #[test]
@@ -2086,6 +2162,7 @@ mod tests {
         let pages = comic::webtoon_split(&img, 1448);
         assert_eq!(pages.len(), 1, "Image shorter than device height should produce 1 page");
         assert_eq!(pages[0].dimensions(), (100, 500));
+        println!("  \u{2713} Short image: 1 page, 100x500 unchanged");
     }
 
     #[test]
@@ -2147,6 +2224,7 @@ mod tests {
         let exth122 = exth.get(&122).expect("Webtoon EXTH should contain record 122 (fixed-layout)");
         let value = std::str::from_utf8(&exth122[0]).unwrap();
         assert_eq!(value, "true", "EXTH 122 should be 'true' for fixed-layout webtoon");
+        println!("  \u{2713} Webtoon pipeline: {} bytes, EXTH 122=true", data.len());
     }
 
     #[test]
@@ -2187,6 +2265,7 @@ mod tests {
         let data = fs::read(&output_path).expect("could not read forced webtoon MOBI");
         assert!(data.len() > 100, "Forced webtoon MOBI too small");
         assert_eq!(&data[60..64], b"BOOK");
+        println!("  \u{2713} Forced webtoon flag: {} bytes, valid MOBI", data.len());
     }
 
     #[test]
@@ -2229,6 +2308,7 @@ mod tests {
         let data = fs::read(&output_path).expect("could not read scribe webtoon MOBI");
         assert!(data.len() > 100, "Scribe webtoon MOBI too small");
         assert_eq!(&data[60..64], b"BOOK");
+        println!("  \u{2713} Scribe webtoon: {} bytes, valid MOBI", data.len());
     }
 
     // =======================================================================
@@ -2293,6 +2373,7 @@ mod tests {
         // First panel should start at top-left (x ~0, y ~0)
         assert!(panels[0].x < 5.0, "First panel should start near x=0, got {:.1}%", panels[0].x);
         assert!(panels[0].y < 5.0, "First panel should start near y=0, got {:.1}%", panels[0].y);
+        println!("  \u{2713} 2x2 grid: {} panels detected, all ~47.5%", panels.len());
     }
 
     #[test]
@@ -2317,6 +2398,7 @@ mod tests {
             "Full-page splash should have 0 panels, got {}",
             panels.len()
         );
+        println!("  \u{2713} Full-page splash: 0 panels detected");
     }
 
     #[test]
@@ -2367,6 +2449,7 @@ mod tests {
         let data = fs::read(&output_path).expect("could not read panel view comic MOBI");
         assert!(data.len() > 100, "Panel View comic MOBI too small");
         assert_eq!(&data[60..64], b"BOOK");
+        println!("  \u{2713} Panel view comic: {} bytes, valid MOBI", data.len());
     }
 
     #[test]
@@ -2433,6 +2516,7 @@ mod tests {
         // but both should be valid MOBIs
         assert!(data_no_pv.len() > 100, "no-panel-view MOBI too small");
         assert!(data_with_pv.len() > 100, "panel-view MOBI too small");
+        println!("  \u{2713} No-PV {} bytes, with-PV {} bytes, both valid", data_no_pv.len(), data_with_pv.len());
     }
 
     #[test]
@@ -2472,6 +2556,7 @@ mod tests {
                 i, panel.w
             );
         }
+        println!("  \u{2713} Horizontal strip: {} panels, all full-width", panels.len());
     }
 
     #[test]
@@ -2524,6 +2609,7 @@ mod tests {
         let data_no_pv = fs::read(&output_no_pv).unwrap();
         assert_eq!(&data_pv[60..64], b"BOOK");
         assert_eq!(&data_no_pv[60..64], b"BOOK");
+        println!("  \u{2713} Panel view OPF: PV {} bytes, no-PV {} bytes", data_pv.len(), data_no_pv.len());
     }
 
     #[test]
@@ -2559,6 +2645,7 @@ mod tests {
             assert!(panel.y + panel.h <= 100.1,
                 "Panel {} y+h ({:.1}) should be <= 100", i, panel.y + panel.h);
         }
+        println!("  \u{2713} All {} panel rects within 0-100% bounds", panels.len());
     }
 
     // =======================================================================
@@ -2618,6 +2705,7 @@ mod tests {
             "Quality 95 ({} bytes) should produce a larger MOBI than quality 30 ({} bytes)",
             size_high, size_low
         );
+        println!("  \u{2713} JPEG q30={} bytes < q95={} bytes", size_low, size_high);
     }
 
     #[test]
@@ -2678,6 +2766,7 @@ mod tests {
         assert_eq!(&data_normal[60..64], b"BOOK");
         assert!(data_chunked.len() > 100, "Chunked MOBI too small");
         assert!(data_normal.len() > 100, "Normal MOBI too small");
+        println!("  \u{2713} Max-height chunked={} bytes, normal={} bytes", data_chunked.len(), data_normal.len());
     }
 
     #[test]
@@ -2720,6 +2809,7 @@ mod tests {
         let data = fs::read(&output_path).unwrap();
         assert!(data.len() > 100, "MOBI too small");
         assert_eq!(&data[60..64], b"BOOK");
+        println!("  \u{2713} Corrupt image skipped, valid MOBI: {} bytes", data.len());
     }
 
     #[test]
@@ -2778,5 +2868,6 @@ mod tests {
         let data = fs::read(&output_path).unwrap();
         assert!(data.len() > 100, "MOBI too small");
         assert_eq!(&data[60..64], b"BOOK");
+        println!("  \u{2713} Zero-dim image skipped, valid MOBI: {} bytes", data.len());
     }
 }
