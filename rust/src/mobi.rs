@@ -1591,7 +1591,15 @@ fn build_record0(
     put32(&mut mobi, 96, 0); // huffman record
     put32(&mut mobi, 100, 0); // huffman count
 
-    put32(&mut mobi, 112, 0x4850); // locale/capability marker (required by Kindle Previewer)
+    // EXTH flags / locale marker at offset 112.
+    // Dictionaries: 0x50 (bit 6 = EXTH present, bit 4 set) - matches Kindle Previewer output.
+    // Books: 0x4850 required for Kindle Previewer compatibility.
+    // Using 0x4850 for dictionaries breaks dictionary recognition on Kindle devices.
+    if is_dictionary {
+        put32(&mut mobi, 112, 0x50);
+    } else {
+        put32(&mut mobi, 112, 0x4850);
+    }
 
     put32(&mut mobi, 148, 0xFFFFFFFF); // DRM flags
     put32(&mut mobi, 152, 0xFFFFFFFF);
