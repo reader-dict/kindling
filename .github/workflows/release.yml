@@ -41,11 +41,11 @@ jobs:
 
       - name: Rename binary (Unix)
         if: runner.os != 'Windows'
-        run: cp rust/target/${{ matrix.target }}/release/kindling ${{ matrix.name }}
+        run: cp rust/target/${{ matrix.target }}/release/kindling-cli ${{ matrix.name }}
 
       - name: Rename binary (Windows)
         if: runner.os == 'Windows'
-        run: cp rust/target/${{ matrix.target }}/release/kindling.exe ${{ matrix.name }}
+        run: cp rust/target/${{ matrix.target }}/release/kindling-cli.exe ${{ matrix.name }}
 
       - uses: actions/upload-artifact@v4
         with:

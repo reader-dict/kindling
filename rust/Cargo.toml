@@ -5,7 +5,7 @@ edition = "2021"
 description = "Kindle MOBI builder for dictionaries and books"
 
 [[bin]]
-name = "kindling"
+name = "kindling-cli"
 path = "src/main.rs"
 
 [dependencies]
