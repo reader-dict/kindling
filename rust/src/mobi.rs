@@ -1469,6 +1469,14 @@ fn split_text_uncompressed(text_bytes: &[u8]) -> (Vec<Vec<u8>>, usize) {
 }
 
 /// Find the byte position of each dictionary entry in the stripped text.
+///
+/// Searches for `<b>headword</b>` at entry boundaries to avoid matching
+/// headword text inside etymologies, definitions, example sentences, or
+/// cross-reference links. Entry headings always follow `<hr/>` (or are at
+/// the start of the text body). If a `<b>headword</b>` match is inside
+/// an example sentence or other content, it is skipped.
+///
+/// Falls back to bare headword search if no bold match is found.
 fn find_entry_positions(text_bytes: &[u8], entries: &[DictionaryEntry]) -> Vec<(usize, usize)> {
     let mut positions = Vec::with_capacity(entries.len());
     let mut search_start: usize = 0;
@@ -1476,19 +1484,52 @@ fn find_entry_positions(text_bytes: &[u8], entries: &[DictionaryEntry]) -> Vec<(
     for entry in entries {
         let headword_bytes = entry.headword.as_bytes();
 
-        let pos = match find_bytes_from(text_bytes, headword_bytes, search_start) {
-            Some(p) => p,
-            None => {
-                positions.push((0, 0));
-                continue;
-            }
-        };
+        // Build <b>headword</b> needle
+        let mut bold_needle = Vec::with_capacity(3 + headword_bytes.len() + 4);
+        bold_needle.extend_from_slice(b"<b>");
+        bold_needle.extend_from_slice(headword_bytes);
+        bold_needle.extend_from_slice(b"</b>");
 
-        // Find the start of this entry's display block (look backward for <b>)
-        let search_from = if pos >= 10 { pos - 10 } else { 0 };
-        let block_start = match rfind_bytes(&text_bytes[search_from..pos], b"<b>") {
-            Some(rel) => search_from + rel,
-            None => pos,
+        // Search for <b>headword</b> at an entry boundary.
+        // Entry headings are preceded by "<hr/> " or "/> " (after <br/>) or
+        // appear near the start of the body. Skip matches inside example
+        // sentences or other content.
+        let mut found = None;
+        let mut scan_from = search_start;
+
+        loop {
+            match find_bytes_from(text_bytes, &bold_needle, scan_from) {
+                Some(bold_pos) => {
+                    if is_entry_boundary(text_bytes, bold_pos) {
+                        found = Some((bold_pos, bold_pos + 3));
+                        break;
+                    }
+                    // Not at entry boundary: skip this match and keep searching
+                    scan_from = bold_pos + bold_needle.len();
+                }
+                None => break,
+            }
+        }
+
+        let (block_start, pos) = match found {
+            Some(result) => result,
+            None => {
+                // Fallback: search for bare headword (for entries without <b> tags)
+                match find_bytes_from(text_bytes, headword_bytes, search_start) {
+                    Some(p) => {
+                        let search_from = if p >= 10 { p - 10 } else { 0 };
+                        let bs = match rfind_bytes(&text_bytes[search_from..p], b"<b>") {
+                            Some(rel) => search_from + rel,
+                            None => p,
+                        };
+                        (bs, p)
+                    }
+                    None => {
+                        positions.push((0, 0));
+                        continue;
+                    }
+                }
+            }
         };
 
         // Find the end of the definition
@@ -1507,6 +1548,37 @@ fn find_entry_positions(text_bytes: &[u8], entries: &[DictionaryEntry]) -> Vec<(
     }
 
     positions
+}
+
+/// Check if a `<b>` tag position is at an entry boundary (a headword heading).
+///
+/// Entry headings in the stripped text are preceded by `<hr/> ` or `"/> `, or
+/// appear near the start of the text (first entry in the body). Bold text
+/// inside example sentences or etymologies is preceded by `>` from a `<p>` or
+/// `<i>` tag, not by `<hr/>`.
+fn is_entry_boundary(text_bytes: &[u8], bold_pos: usize) -> bool {
+    // First entry: near the start of the body
+    if bold_pos < 200 {
+        return true;
+    }
+
+    // Look backward from the <b> position for the preceding context.
+    // Entry headings are preceded by: <hr/> <b>  (with space between)
+    // or by: /> <b> (after <br/> or self-closing tags at end of prev entry)
+    let check_start = if bold_pos >= 8 { bold_pos - 8 } else { 0 };
+    let preceding = &text_bytes[check_start..bold_pos];
+
+    // Check for "<hr/> " immediately before
+    if preceding.ends_with(b"<hr/> ") || preceding.ends_with(b"<hr/>") {
+        return true;
+    }
+
+    // Check for "/> " (after <br/> or self-closing tags)
+    if preceding.ends_with(b"/> ") {
+        return true;
+    }
+
+    false
 }
 
 /// Build the complete list of lookup terms for the orth index.
