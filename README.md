@@ -21,7 +21,7 @@ Pre-built binaries for Mac (Apple Silicon, Intel), Linux (x86_64), and Windows (
 
 - **Dictionaries**: Full orth index with headword + inflection lookup, ORDT/SPL sort tables, fontsignature
 - **Books**: EPUB or OPF input, embedded images, KF8 dual-format (KF7+KF8) or KF8-only (.azw3), HD image container, fixed-layout support
-- **Comics**: Image folder or CBZ input, device-specific resizing, spread splitting, margin cropping, auto-contrast, manga RTL, webtoon support, Panel View markup
+- **Comics**: Image folder, CBZ, or EPUB input, device-specific resizing, spread splitting, margin cropping, auto-contrast, manga RTL, webtoon support, Panel View markup
 - Drop-in *kindlegen* replacement (same CLI flags, same status codes)
 - Kindle Previewer compatible (EPUB source embedded by default)
 - Comprehensive test suite with CI on every push (see [Testing](#testing))
@@ -71,12 +71,13 @@ The `--kf8-only` flag outputs KF8-only format with `.azw3` extension instead of 
 
 ```bash
 kindling-cli comic input.cbz -o output.mobi --device paperwhite
+kindling-cli comic manga.epub -o output.mobi --rtl              # EPUB comic/manga
 kindling-cli comic manga.cbz -o output.mobi --rtl              # manga (right-to-left)
 kindling-cli comic webtoon/ -o output.mobi --webtoon            # webtoon (vertical strip)
 kindling-cli comic input/ -o output.mobi --no-split --no-crop   # disable smart processing
 ```
 
-Converts image folders and CBZ files to Kindle-optimized MOBI with:
+Converts image folders, CBZ files, and EPUB files to Kindle-optimized MOBI with:
 - **Device profiles**: *paperwhite*, *oasis*, *scribe*, *basic*, *colorsoft*, *fire-hd-10*
 - **Spread splitting**: Landscape images auto-split into two pages (disable: `--no-split`)
 - **Margin cropping**: Uniform-color borders auto-removed (disable: `--no-crop`)
@@ -84,6 +85,7 @@ Converts image folders and CBZ files to Kindle-optimized MOBI with:
 - **Manga mode**: `--rtl` reverses page order and split direction
 - **Webtoon mode**: `--webtoon` merges vertical strips and splits at panel gutters
 - **Panel View**: Tap-to-zoom panel detection for Kindle (disable: `--no-panel-view`)
+- **EPUB support**: Fixed-layout EPUB comics extracted in spine order (correct page sequence)
 - **ComicInfo.xml**: Auto-reads metadata and manga direction from CBZ files
 
 ### Kindlegen compatibility
@@ -254,6 +256,32 @@ The test suite covers:
 - **Comic pipeline**: Device profiles, spread detection and splitting, margin cropping, auto-contrast, webtoon merge/split, Panel View markup, manga RTL ordering, JPEG quality, ComicInfo.xml parsing
 - **Compression**: PalmDOC LZ77 compress/decompress roundtrips for various sizes and encodings
 - **Regression tests**: Dictionary capability marker (0x50 vs 0x4850), JFIF density patching
+
+## Known Kindle firmware issues
+
+These are Amazon firmware bugs, not kindling bugs, but they affect sideloaded MOBI/AZW3 files and users should be aware of them.
+
+### Blank pages on Kindle Scribe and Colorsoft
+
+Kindle Scribe (all generations) and Colorsoft randomly render some pages as blank. This is the most-reported issue across comic converters and is caused by a firmware rendering bug. PNG images are far more affected than JPEG, and higher JPEG quality settings (larger per-page file size) may worsen the issue.
+
+- Kindling uses JPEG by default, which helps
+- Use `--jpeg-quality 70` to reduce per-page file size if you encounter blank pages
+- This affects all converters, not just kindling
+
+### Calibre Panel View corruption
+
+Transferring MOBI files via Calibre can strip or corrupt Panel View metadata. Symptoms: the Panel View menu option disappears and tap-to-zoom stops working.
+
+- Transfer files directly via USB instead of through Calibre
+- Or use Calibre's "Send to device" without format conversion
+
+### Firmware 5.19.2 sideloading regressions
+
+Kindle firmware 5.19.2 introduced regressions for sideloaded fixed-layout content: Panel View disappeared, large margins appeared, and page turns became laggy. These issues were partially fixed in 5.19.3.0.1.
+
+- Deregistering the Kindle temporarily resolves the issue
+- Updating to firmware 5.19.3+ is recommended
 
 ## Related projects
 

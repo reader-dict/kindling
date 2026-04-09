@@ -26,6 +26,7 @@ use image::{DynamicImage, GenericImageView, GrayImage, Luma, Rgb, RgbImage};
 use rayon::prelude::*;
 
 use crate::mobi;
+use crate::moire;
 
 /// Device profile for Kindle screen dimensions.
 #[derive(Debug, Clone, Copy)]
@@ -44,6 +45,9 @@ const PROFILES: &[DeviceProfile] = &[
     DeviceProfile { width: 1072, height: 1448, grayscale: true, name: "basic" },
     DeviceProfile { width: 1264, height: 1680, grayscale: false, name: "colorsoft" },
     DeviceProfile { width: 1200, height: 1920, grayscale: false, name: "fire-hd-10" },
+    DeviceProfile { width: 1236, height: 1648, grayscale: true, name: "kpw5" },
+    DeviceProfile { width: 1986, height: 2648, grayscale: true, name: "scribe2025" },
+    DeviceProfile { width: 1240, height: 1860, grayscale: true, name: "kindle2024" },
 ];
 
 /// Look up a device profile by name (case-insensitive).
@@ -55,6 +59,15 @@ pub fn get_profile(name: &str) -> Option<DeviceProfile> {
 /// Return a comma-separated list of valid device names.
 pub fn valid_device_names() -> String {
     PROFILES.iter().map(|p| p.name).collect::<Vec<_>>().join(", ")
+}
+
+/// Specifies how the cover image should be chosen.
+#[derive(Debug, Clone)]
+pub enum CoverSource {
+    /// Use a specific page number (1-based) as the cover.
+    PageNumber(usize),
+    /// Use an external image file as the cover.
+    FilePath(PathBuf),
 }
 
 /// Options controlling comic image processing.
@@ -78,6 +91,17 @@ pub struct ComicOptions {
     pub max_height: u32,
     /// Embed the generated EPUB in the MOBI (for Kindle Previewer compat). Default: true.
     pub embed_source: bool,
+    /// Document type for EXTH 501: "EBOK" (Books shelf) or "PDOC" (Documents shelf).
+    /// Default: None (PDOC).
+    pub doc_type: Option<String>,
+    /// Override title from ComicInfo.xml.
+    pub title_override: Option<String>,
+    /// Override author from ComicInfo.xml.
+    pub author_override: Option<String>,
+    /// Language code for OPF metadata (e.g. "ja", "en", "ko").
+    pub language: Option<String>,
+    /// Override cover image selection.
+    pub cover: Option<CoverSource>,
 }
 
 impl Default for ComicOptions {
@@ -92,6 +116,11 @@ impl Default for ComicOptions {
             jpeg_quality: 85,
             max_height: 65536,
             embed_source: true,
+            doc_type: None,
+            title_override: None,
+            author_override: None,
+            language: None,
+            cover: None,
         }
     }
 }
@@ -203,7 +232,7 @@ pub fn build_comic_with_options(
             if idx % 10 == 0 || idx == total - 1 {
                 eprintln!("Processing image {}/{}...", idx + 1, total);
             }
-            match process_image_pipeline(img_path, profile, options, rtl) {
+            match process_image_pipeline(img_path, profile, options) {
                 Ok(jpeg_pages) => Some((idx, jpeg_pages)),
                 Err(e) => {
                     eprintln!("Warning: skipping {} ({})", img_path.display(), e);
@@ -269,7 +298,7 @@ pub fn build_comic_with_options(
     // Step 4: Write OPF + XHTML + images to temp directory
     let temp_dir = create_temp_dir(output)?;
     let opf_path = write_fixed_layout_epub_v2(
-        &temp_dir, &processed, profile, rtl, metadata.as_ref(), options.panel_view,
+        &temp_dir, &processed, profile, rtl, metadata.as_ref(), options.panel_view, options,
     )?;
 
     // Step 5: Build MOBI
@@ -290,6 +319,7 @@ pub fn build_comic_with_options(
         false,  // allow HD images
         false,  // default creator identity
         false,  // dual format (not KF8-only)
+        options.doc_type.as_deref(),
     );
 
     // Step 6: Clean up temp dirs
@@ -309,9 +339,9 @@ pub fn build_comic_with_options(
     result
 }
 
-/// Collect image file paths from input (folder or CBZ).
+/// Collect image file paths from input (folder, CBZ, or EPUB).
 ///
-/// Returns (image_paths, optional_cbz_temp_dir). The temp dir, if present,
+/// Returns (image_paths, optional_temp_dir). The temp dir, if present,
 /// should be cleaned up by the caller after processing.
 fn collect_images(input: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>), Box<dyn std::error::Error>> {
     if input.is_dir() {
@@ -323,6 +353,10 @@ fn collect_images(input: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>), Box<d
                 let (images, temp_dir) = extract_cbz(input)?;
                 Ok((images, Some(temp_dir)))
             }
+            "epub" => {
+                let (images, temp_dir) = extract_epub_images(input)?;
+                Ok((images, Some(temp_dir)))
+            }
             "cbr" | "rar" => Err("CBR (RAR) files are not supported directly. Please convert to CBZ first using:\n  unrar x input.cbr temp_dir/ && cd temp_dir && zip -r output.cbz .".into()),
             "pdf" => Err("PDF support coming soon".into()),
             _ => Err(format!("Unsupported input format: .{}", ext_lower).into()),
@@ -330,6 +364,172 @@ fn collect_images(input: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>), Box<d
     } else {
         Err("Cannot determine input type (not a directory and has no extension)".into())
     }
+}
+
+/// Extract images from an EPUB file in spine order.
+///
+/// Uses epub::extract_epub() to unpack the archive, then parses the OPF to get
+/// spine ordering. For each spine item (XHTML file), finds referenced images
+/// via `<img src="...">` or `<svg><image xlink:href="...">` tags. Returns images
+/// in spine order, which is critical for correct page ordering in manga/comics.
+///
+/// Returns (image_paths, temp_extraction_dir).
+fn extract_epub_images(epub_path: &Path) -> Result<(Vec<PathBuf>, PathBuf), Box<dyn std::error::Error>> {
+    use crate::opf::OPFData;
+
+    let (temp_dir, opf_path) = epub::extract_epub(epub_path)?;
+
+    let opf = OPFData::parse(&opf_path)?;
+    let opf_dir = opf_path.parent().unwrap_or(Path::new("."));
+
+    // Collect images referenced in spine-ordered XHTML pages.
+    // This preserves reading order rather than filesystem alphabetical order.
+    let mut ordered_images: Vec<PathBuf> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for (_id, href) in &opf.spine_items {
+        let xhtml_path = opf_dir.join(href);
+        if !xhtml_path.exists() {
+            continue;
+        }
+
+        let xhtml_dir = xhtml_path.parent().unwrap_or(opf_dir);
+
+        let content = match fs::read_to_string(&xhtml_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        // Extract image references from the XHTML content
+        let image_refs = extract_image_refs_from_xhtml(&content);
+
+        for img_ref in image_refs {
+            // Resolve relative path against the XHTML file's directory
+            let img_path = xhtml_dir.join(&img_ref);
+            let img_path = img_path.canonicalize().unwrap_or(img_path);
+
+            if img_path.exists() && is_image_file(&img_path) && seen.insert(img_path.clone()) {
+                ordered_images.push(img_path);
+            }
+        }
+    }
+
+    // If spine parsing yielded no images, fall back to collecting all images
+    // from the extracted directory in natural sort order
+    if ordered_images.is_empty() {
+        eprintln!("No images found via EPUB spine, falling back to directory scan");
+        ordered_images = collect_images_from_dir(&temp_dir)?;
+    }
+
+    if ordered_images.is_empty() {
+        let _ = fs::remove_dir_all(&temp_dir);
+        return Err("No image files found in EPUB archive".into());
+    }
+
+    eprintln!("EPUB: found {} images in spine order", ordered_images.len());
+
+    Ok((ordered_images, temp_dir))
+}
+
+/// Extract image file references from XHTML content.
+///
+/// Handles three common patterns found in fixed-layout EPUB comics:
+///   1. `<img src="...">` - standard HTML image tags
+///   2. `<image xlink:href="...">` or `<image href="...">` - SVG image elements
+///   3. CSS background-image references (less common, but seen in some EPUBs)
+fn extract_image_refs_from_xhtml(content: &str) -> Vec<String> {
+    use quick_xml::events::Event;
+    use quick_xml::Reader;
+
+    let mut refs = Vec::new();
+    let mut reader = Reader::from_str(content);
+    reader.config_mut().trim_text(true);
+    let mut buf = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
+                let tag_name = e.name();
+                let tag = std::str::from_utf8(tag_name.as_ref()).unwrap_or("");
+                // Strip namespace prefix if present (e.g., "xhtml:img" -> "img")
+                let local = tag.rsplit(':').next().unwrap_or(tag);
+
+                match local {
+                    "img" => {
+                        // <img src="..."/>
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"src" {
+                                let src = String::from_utf8_lossy(&attr.value).to_string();
+                                if !src.is_empty() {
+                                    refs.push(src);
+                                }
+                            }
+                        }
+                    }
+                    "image" => {
+                        // <image xlink:href="..." /> or <image href="..."/>
+                        for attr in e.attributes().flatten() {
+                            let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("");
+                            // Match "href", "xlink:href", or any ns-prefixed href
+                            if key == "href" || key.ends_with(":href") {
+                                let href = String::from_utf8_lossy(&attr.value).to_string();
+                                if !href.is_empty() {
+                                    refs.push(href);
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => {
+                // XHTML parsing failed; fall back to regex extraction
+                return extract_image_refs_regex(content);
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    // If XML parsing yielded nothing, try regex as fallback
+    // (some EPUB XHTML is not well-formed XML)
+    if refs.is_empty() {
+        return extract_image_refs_regex(content);
+    }
+
+    refs
+}
+
+/// Regex fallback for extracting image references from XHTML.
+///
+/// Used when the XML parser fails (malformed XHTML) or finds no images.
+fn extract_image_refs_regex(content: &str) -> Vec<String> {
+    use regex::Regex;
+    use std::sync::OnceLock;
+
+    static IMG_SRC_RE: OnceLock<Regex> = OnceLock::new();
+    static IMAGE_HREF_RE: OnceLock<Regex> = OnceLock::new();
+
+    let img_re = IMG_SRC_RE.get_or_init(|| {
+        Regex::new(r#"<img\s[^>]*src="([^"]+)""#).unwrap()
+    });
+    let image_re = IMAGE_HREF_RE.get_or_init(|| {
+        Regex::new(r#"<image\s[^>]*(?:xlink:)?href="([^"]+)""#).unwrap()
+    });
+
+    let mut refs = Vec::new();
+    for cap in img_re.captures_iter(content) {
+        if let Some(m) = cap.get(1) {
+            refs.push(m.as_str().to_string());
+        }
+    }
+    for cap in image_re.captures_iter(content) {
+        if let Some(m) = cap.get(1) {
+            refs.push(m.as_str().to_string());
+        }
+    }
+    refs
 }
 
 /// Scan a directory for image files, sorted naturally by filename.
@@ -493,9 +693,8 @@ fn process_image_pipeline(
     path: &Path,
     profile: &DeviceProfile,
     options: &ComicOptions,
-    rtl: bool,
 ) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
-    let img = image::open(path)?;
+    let mut img = image::open(path)?;
 
     // Check for zero-dimension images
     let (w, h) = img.dimensions();
@@ -503,27 +702,40 @@ fn process_image_pipeline(
         return Err(format!("zero dimensions ({}x{})", w, h).into());
     }
 
-    // Step 1: Detect and split double-page spreads
+    // Step 0: Moire correction for grayscale source images on color devices.
+    // Color e-ink screens (Colorsoft, Fire) use a CFA overlay that produces
+    // rainbow artifacts when displaying high-frequency grayscale content like
+    // manga screentone. Apply a mild blur + unsharp mask to suppress this.
+    if !profile.grayscale && is_grayscale_source(&img) {
+        moire::remove_moire(&mut img);
+    }
+
+    // Step 1: Crop borders on the full image BEFORE splitting spreads.
+    // Cropping the full spread first ensures both halves get symmetric treatment.
+    // If we split first and crop each half independently, asymmetric borders on
+    // the left vs. right half can produce mismatched page sizes.
+    let img = if options.crop {
+        crop_borders(&img)
+    } else {
+        img
+    };
+
+    // Step 2: Detect and split double-page spreads
+    // Always split as [left, right] regardless of RTL. The global page reversal
+    // in build_comic_with_options handles RTL ordering: reversing [left, right]
+    // yields [right, left], which is the correct RTL reading order for a spread.
+    // Swapping here AND reversing globally would cancel out, producing the wrong
+    // cover image (left half instead of right half for RTL).
     let pages = if options.split && is_double_page_spread(&img) {
         let (left, right) = split_spread(&img);
-        if rtl {
-            vec![right, left]  // RTL: right page first
-        } else {
-            vec![left, right]  // LTR: left page first
-        }
+        vec![left, right]
     } else {
         vec![img]
     };
 
-    // Step 2-4: Process each page
+    // Step 3-4: Process each page (enhance, resize, encode)
     let mut results = Vec::new();
     for page in pages {
-        let page = if options.crop {
-            crop_borders(&page)
-        } else {
-            page
-        };
-
         let page = if options.enhance && profile.grayscale {
             enhance_image(&page)
         } else {
@@ -555,6 +767,56 @@ fn encode_jpeg(img: &DynamicImage, quality: u8) -> Result<Vec<u8>, Box<dyn std::
     let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(cursor, quality);
     img.write_with_encoder(encoder)?;
     Ok(jpeg_buf)
+}
+
+// ---------------------------------------------------------------------------
+// Grayscale source detection (for moire correction)
+// ---------------------------------------------------------------------------
+
+/// Check if a source image is effectively grayscale.
+///
+/// Returns true if the image is a GrayImage, or if it's an RGB/RGBA image
+/// where the color channels have very low variance (i.e. R ~= G ~= B for all
+/// pixels). This catches grayscale manga/comics saved as RGB files.
+fn is_grayscale_source(img: &DynamicImage) -> bool {
+    match img {
+        DynamicImage::ImageLuma8(_) | DynamicImage::ImageLuma16(_) => true,
+        _ => {
+            // Sample pixels to check if R ~= G ~= B across the image.
+            // For efficiency, sample at most ~1000 pixels in a grid.
+            let (w, h) = img.dimensions();
+            if w == 0 || h == 0 {
+                return true;
+            }
+            let rgb = img.to_rgb8();
+            let step_x = (w / 32).max(1);
+            let step_y = (h / 32).max(1);
+            let mut max_channel_diff: u8 = 0;
+            let mut x = 0;
+            while x < w {
+                let mut y = 0;
+                while y < h {
+                    let p = rgb.get_pixel(x, y).0;
+                    let r = p[0];
+                    let g = p[1];
+                    let b = p[2];
+                    let diff = (r.max(g).max(b)) - (r.min(g).min(b));
+                    if diff > max_channel_diff {
+                        max_channel_diff = diff;
+                    }
+                    // Early exit: if any sampled pixel has significant color,
+                    // this is not a grayscale source.
+                    if max_channel_diff > 10 {
+                        return false;
+                    }
+                    y += step_y;
+                }
+                x += step_x;
+            }
+            // All sampled pixels had R ~= G ~= B within 10 levels
+            true
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -981,8 +1243,10 @@ fn detect_background_color(img: &DynamicImage) -> Rgb<u8> {
 /// Split a tall strip image into device-height pages at natural gutters.
 ///
 /// Searches for horizontal rows of low variance (gutters between panels)
-/// within +/- 20% of the target height. Falls back to a hard split at
-/// target_height when no good gutter is found.
+/// within +/- 20% of the target height. When no good gutter is found,
+/// splits at the target height with overlap: the bottom ~10% of each page
+/// overlaps with the top of the next page, so no content is lost even if
+/// the cut goes through a panel.
 pub fn webtoon_split(strip: &DynamicImage, device_height: u32) -> Vec<DynamicImage> {
     let (w, h) = strip.dimensions();
 
@@ -993,14 +1257,19 @@ pub fn webtoon_split(strip: &DynamicImage, device_height: u32) -> Vec<DynamicIma
     let gray = strip.to_luma8();
     let target = device_height;
     let margin = (target as f64 * 0.20) as u32;
+    let overlap = (target as f64 * 0.10) as u32; // 10% overlap when no gutter found
 
     let mut pages = Vec::new();
     let mut y_start = 0u32;
 
     while y_start < h {
         let remaining = h - y_start;
+
+        // If remaining content fits in one page (with some slack), take it all.
+        // The slack accounts for overlap from the previous page: if the remaining
+        // content is shorter than target + margin, just include it rather than
+        // creating a tiny final page.
         if remaining <= target + margin {
-            // Last page: take everything remaining
             pages.push(strip.crop_imm(0, y_start, w, remaining));
             break;
         }
@@ -1009,11 +1278,19 @@ pub fn webtoon_split(strip: &DynamicImage, device_height: u32) -> Vec<DynamicIma
         let search_lo = target.saturating_sub(margin);
         let search_hi = (target + margin).min(remaining);
 
-        let best_y = find_best_gutter(&gray, y_start, search_lo, search_hi, w);
+        let (best_y, gutter_found) = find_best_gutter(&gray, y_start, search_lo, search_hi, w);
 
         let cut_y = y_start + best_y;
         pages.push(strip.crop_imm(0, y_start, w, best_y));
-        y_start = cut_y;
+
+        if gutter_found {
+            // Clean gutter found - advance past it with no overlap
+            y_start = cut_y;
+        } else {
+            // No good gutter - back up by the overlap amount so the next page
+            // repeats the bottom portion of this page
+            y_start = cut_y.saturating_sub(overlap);
+        }
     }
 
     pages
@@ -1021,40 +1298,66 @@ pub fn webtoon_split(strip: &DynamicImage, device_height: u32) -> Vec<DynamicIma
 
 /// Find the row with the lowest variance (best gutter) within a search range.
 ///
-/// Scans rows from y_start + lo to y_start + hi and returns the offset from
-/// y_start that has the lowest pixel variance (most uniform row).
+/// Scans rows from y_start + lo to y_start + hi and returns a tuple of
+/// (offset_from_y_start, gutter_found). When `gutter_found` is false, the
+/// returned offset is the target midpoint and the caller should apply
+/// overlap to avoid cutting through content.
+///
+/// This works for both white gutters (all ~255) and dark/black gutters
+/// (all ~0) since variance measures uniformity regardless of the mean
+/// brightness.
+///
+/// To improve detection of gutters that span multiple consecutive rows (common
+/// in webtoons with thick panel gaps), we average variance over a small window
+/// of rows. This makes the detector more robust to single-row noise that might
+/// appear inside a gutter band.
 fn find_best_gutter(
     gray: &GrayImage,
     y_start: u32,
     lo: u32,
     hi: u32,
     width: u32,
-) -> u32 {
+) -> (u32, bool) {
     let target_mid = (lo + hi) / 2;
     let mut best_offset = target_mid;
-    let mut best_variance = f64::MAX;
+    let mut best_score = f64::MAX;
+    let img_height = gray.height();
+
+    // Use a small window (5 rows) to average variance, making detection more
+    // robust for thick gutters that may have slight noise in individual rows.
+    let half_window: u32 = 2;
 
     for offset in lo..=hi {
         let y = y_start + offset;
-        if y >= gray.height() {
+        if y >= img_height {
             break;
         }
 
-        let variance = row_variance(gray, y, width);
-        if variance < best_variance {
-            best_variance = variance;
+        // Average variance over a window of rows centered on y
+        let win_lo = y.saturating_sub(half_window);
+        let win_hi = (y + half_window + 1).min(img_height);
+        let mut var_sum = 0.0;
+        let mut count = 0u32;
+        for wy in win_lo..win_hi {
+            var_sum += row_variance(gray, wy, width);
+            count += 1;
+        }
+        let avg_variance = if count > 0 { var_sum / count as f64 } else { f64::MAX };
+
+        if avg_variance < best_score {
+            best_score = avg_variance;
             best_offset = offset;
         }
     }
 
-    // If variance is still quite high, no good gutter was found - use target midpoint
     // A "good" gutter has very low variance (near-uniform row).
     // Threshold: variance < 100.0 indicates a fairly uniform row.
-    if best_variance > 100.0 {
-        return target_mid;
+    if best_score > 100.0 {
+        // No good gutter found - return target midpoint with flag
+        return (target_mid, false);
     }
 
-    best_offset
+    (best_offset, true)
 }
 
 /// Calculate the pixel variance of a single row.
@@ -1476,6 +1779,7 @@ fn write_fixed_layout_epub_v2(
     rtl: bool,
     metadata: Option<&ComicMetadata>,
     panel_view: bool,
+    options: &ComicOptions,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let images_dir = temp_dir.join("images");
     fs::create_dir_all(&images_dir)?;
@@ -1500,8 +1804,26 @@ fn write_fixed_layout_epub_v2(
     let css = build_comic_css(any_panels);
     fs::write(temp_dir.join("comic.css"), css.as_bytes())?;
 
+    // Handle external cover image if provided
+    let external_cover_id = if let Some(CoverSource::FilePath(ref path)) = options.cover {
+        let cover_filename = "cover_override.jpg";
+        let cover_data = fs::read(path).map_err(|e| {
+            format!("Could not read cover image {}: {}", path.display(), e)
+        })?;
+        // Re-encode cover image as JPEG to ensure Kindle compatibility
+        let cover_img = image::load_from_memory(&cover_data).map_err(|e| {
+            format!("Could not decode cover image {}: {}", path.display(), e)
+        })?;
+        let cover_resized = cover_img.resize(profile.width, profile.height, FilterType::Lanczos3);
+        let cover_jpeg = encode_jpeg(&cover_resized, options.jpeg_quality)?;
+        fs::write(images_dir.join(cover_filename), &cover_jpeg)?;
+        Some(cover_filename.to_string())
+    } else {
+        None
+    };
+
     // Write OPF
-    let opf = build_comic_opf_v2(pages.len(), profile, rtl, metadata, any_panels);
+    let opf = build_comic_opf_v2(pages.len(), profile, rtl, metadata, any_panels, options, external_cover_id.as_deref());
     let opf_path = temp_dir.join("content.opf");
     fs::write(&opf_path, opf.as_bytes())?;
 
@@ -1519,6 +1841,8 @@ fn build_comic_opf_v2(
     rtl: bool,
     metadata: Option<&ComicMetadata>,
     panel_view: bool,
+    options: &ComicOptions,
+    external_cover_filename: Option<&str>,
 ) -> String {
     let mut manifest_items = String::new();
     let mut spine_items = String::new();
@@ -1544,20 +1868,50 @@ fn build_comic_opf_v2(
         ));
     }
 
-    let cover_meta = if num_pages > 0 {
-        "  <meta name=\"cover\" content=\"img0000\"/>\n"
+    // Handle cover: external file, page number override, or default (first page)
+    let (cover_meta, cover_manifest_entry) = if let Some(ref cover_filename) = external_cover_filename {
+        // External cover image file
+        let entry = format!(
+            "    <item id=\"cover_img\" href=\"images/{}\" media-type=\"image/jpeg\"/>\n",
+            cover_filename
+        );
+        ("  <meta name=\"cover\" content=\"cover_img\"/>\n".to_string(), entry)
+    } else if let Some(CoverSource::PageNumber(page_num)) = options.cover {
+        // 1-based page number
+        let idx = page_num.saturating_sub(1);
+        if idx < num_pages {
+            (format!("  <meta name=\"cover\" content=\"img{:04}\"/>\n", idx), String::new())
+        } else {
+            eprintln!("Warning: cover page {} exceeds page count {}, using first page", page_num, num_pages);
+            if num_pages > 0 {
+                ("  <meta name=\"cover\" content=\"img0000\"/>\n".to_string(), String::new())
+            } else {
+                (String::new(), String::new())
+            }
+        }
+    } else if num_pages > 0 {
+        ("  <meta name=\"cover\" content=\"img0000\"/>\n".to_string(), String::new())
     } else {
-        ""
+        (String::new(), String::new())
     };
 
-    // Determine title
-    let title = metadata
-        .and_then(|m| m.effective_title())
-        .unwrap_or_else(|| "Comic".to_string());
+    // Determine title: CLI override > ComicInfo.xml > fallback
+    let title = if let Some(ref t) = options.title_override {
+        t.clone()
+    } else {
+        metadata
+            .and_then(|m| m.effective_title())
+            .unwrap_or_else(|| "Comic".to_string())
+    };
 
-    // Determine creators
+    // Determine creators: CLI override > ComicInfo.xml
     let mut creator_entries = String::new();
-    if let Some(meta) = metadata {
+    if let Some(ref author) = options.author_override {
+        creator_entries.push_str(&format!(
+            "    <dc:creator>{}</dc:creator>\n",
+            escape_xml(author)
+        ));
+    } else if let Some(meta) = metadata {
         for creator in meta.creators() {
             creator_entries.push_str(&format!(
                 "    <dc:creator>{}</dc:creator>\n",
@@ -1565,6 +1919,9 @@ fn build_comic_opf_v2(
             ));
         }
     }
+
+    // Determine language: CLI override > default "en"
+    let language = options.language.as_deref().unwrap_or("en");
 
     // Determine description
     let mut description_entry = String::new();
@@ -1599,7 +1956,7 @@ fn build_comic_opf_v2(
 <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="uid">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:title>{title}</dc:title>
-    <dc:language>en</dc:language>
+    <dc:language>{language}</dc:language>
     <dc:identifier id="uid">kindling-comic-{timestamp}</dc:identifier>
 {creator_entries}{description_entry}    <meta name="fixed-layout" content="true"/>
     <meta name="original-resolution" content="{width}x{height}"/>
@@ -1607,12 +1964,13 @@ fn build_comic_opf_v2(
     <meta property="rendition:orientation">auto</meta>
 {writing_mode_meta}{panel_view_meta}{cover_meta}  </metadata>
   <manifest>
-{manifest_items}  </manifest>
+{cover_manifest_entry}{manifest_items}  </manifest>
   <spine toc="ncx" page-progression-direction="{ppd}">
 {spine_items}  </spine>
 </package>
 "#,
         title = escape_xml(&title),
+        language = escape_xml(language),
         timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -1620,6 +1978,7 @@ fn build_comic_opf_v2(
         width = profile.width,
         height = profile.height,
         cover_meta = cover_meta,
+        cover_manifest_entry = cover_manifest_entry,
         creator_entries = creator_entries,
         description_entry = description_entry,
         manifest_items = manifest_items,

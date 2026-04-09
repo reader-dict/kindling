@@ -76,10 +76,10 @@ enum Commands {
         kf8_only: bool,
     },
 
-    /// Convert comic images/CBZ/CBR to Kindle-optimized MOBI
+    /// Convert comic images/CBZ/CBR/EPUB to Kindle-optimized MOBI
     #[command(version)]
     Comic {
-        /// Input image folder, CBZ file, or CBR file
+        /// Input image folder, CBZ file, CBR file, or EPUB file
         input: PathBuf,
 
         /// Output MOBI file
@@ -129,6 +129,29 @@ enum Commands {
         /// Skip embedding the EPUB source in the MOBI (saves space, breaks Kindle Previewer)
         #[arg(long)]
         no_embed_source: bool,
+
+        /// Document type: "ebok" (Books shelf) or "pdoc" (Documents shelf, default).
+        /// WARNING: Amazon may auto-delete sideloaded EBOK files when Kindle connects to WiFi.
+        #[arg(long, default_value = "pdoc")]
+        doc_type: String,
+
+        /// Override the title from ComicInfo.xml
+        #[arg(long)]
+        title: Option<String>,
+
+        /// Override the author from ComicInfo.xml
+        #[arg(long)]
+        author: Option<String>,
+
+        /// Language code for OPF metadata (e.g. "ja", "en", "ko").
+        /// Important for CJK content where language affects font selection on Kindle.
+        #[arg(long)]
+        language: Option<String>,
+
+        /// Cover image: a page number (1-based) or a file path.
+        /// When provided, use that image as the cover instead of the first page.
+        #[arg(long)]
+        cover: Option<String>,
     },
 }
 
@@ -245,7 +268,7 @@ fn do_build(
 
         let result = mobi::build_mobi(
             &opf_path, output_path, no_compress, headwords_only,
-            srcs_data.as_deref(), include_cmet, no_hd_images, creator_tag, kf8_only,
+            srcs_data.as_deref(), include_cmet, no_hd_images, creator_tag, kf8_only, None,
         );
         epub::cleanup_temp_dir(&temp_dir);
         result
@@ -253,7 +276,7 @@ fn do_build(
         // Direct OPF input
         mobi::build_mobi(
             input, output_path, no_compress, headwords_only,
-            srcs_data.as_deref(), include_cmet, no_hd_images, creator_tag, kf8_only,
+            srcs_data.as_deref(), include_cmet, no_hd_images, creator_tag, kf8_only, None,
         )
     };
 
@@ -320,6 +343,11 @@ fn main() {
                 jpeg_quality,
                 max_height,
                 no_embed_source,
+                doc_type,
+                title,
+                author,
+                language,
+                cover,
             } => {
                 let profile = match comic::get_profile(&device) {
                     Some(p) => p,
@@ -341,6 +369,30 @@ fn main() {
                     }
                 };
 
+                // Parse doc_type flag
+                let doc_type_value = match doc_type.to_lowercase().as_str() {
+                    "ebok" => Some("EBOK".to_string()),
+                    "pdoc" => None, // None means default PDOC
+                    other => {
+                        eprintln!("Warning: unknown --doc-type '{}', using default 'pdoc'", other);
+                        None
+                    }
+                };
+
+                // Parse cover flag: either a page number or a file path
+                let cover_source = cover.map(|c| {
+                    if let Ok(page_num) = c.parse::<usize>() {
+                        if page_num >= 1 {
+                            comic::CoverSource::PageNumber(page_num)
+                        } else {
+                            eprintln!("Warning: cover page number must be >= 1, treating as file path");
+                            comic::CoverSource::FilePath(PathBuf::from(c))
+                        }
+                    } else {
+                        comic::CoverSource::FilePath(PathBuf::from(c))
+                    }
+                });
+
                 let options = comic::ComicOptions {
                     rtl,
                     split: !no_split,
@@ -351,6 +403,11 @@ fn main() {
                     jpeg_quality,
                     max_height,
                     embed_source: !no_embed_source,
+                    doc_type: doc_type_value,
+                    title_override: title,
+                    author_override: author,
+                    language,
+                    cover: cover_source,
                 };
 
                 match comic::build_comic_with_options(&input, &output_path, &profile, &options) {

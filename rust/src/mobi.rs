@@ -35,6 +35,7 @@ pub fn build_mobi(
     no_hd_images: bool,
     creator_tag: bool,
     kf8_only: bool,
+    doc_type: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let opf = OPFData::parse(opf_path)?;
 
@@ -53,7 +54,7 @@ pub fn build_mobi(
         } else {
             eprintln!("Detected book content (no idx:entry tags found)");
         }
-        build_book_mobi(&opf, output_path, no_compress, srcs_data, include_cmet, !no_hd_images, creator_tag, kf8_only)
+        build_book_mobi(&opf, output_path, no_compress, srcs_data, include_cmet, !no_hd_images, creator_tag, kf8_only, doc_type)
     }
 }
 
@@ -211,6 +212,7 @@ fn build_dictionary_mobi(
         srcs_record_idx,
         None, // no HD images for dictionaries
         creator_tag,
+        None, // no doc_type for dictionaries
     );
 
     // Assemble all records
@@ -258,6 +260,7 @@ fn build_book_mobi(
     hd_images: bool,
     creator_tag: bool,
     kf8_only: bool,
+    doc_type: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Collect images from the OPF manifest
     let image_items = opf.get_image_items(); // Vec<(href, media_type)>
@@ -453,6 +456,7 @@ fn build_book_mobi(
             kf8_srcs_idx,
             hd_geometry_string.as_deref(),
             total_records,
+            doc_type,
         );
 
         let kf8_flis_rec = build_flis();
@@ -604,6 +608,7 @@ fn build_book_mobi(
             kf7_srcs_idx,
             hd_geometry_string.as_deref(),
             creator_tag,
+            doc_type,
         );
 
         // Build KF8 record 0 (version=8, KF8-relative indices)
@@ -628,6 +633,7 @@ fn build_book_mobi(
             None,  // no SRCS in KF8 section of dual format
             None,  // no HD geometry in KF8 section of dual format
             0,     // total_records not used for KF8 section in dual format
+            doc_type,
         );
 
         // Build FLIS/FCIS/EOF for both sections
@@ -1620,6 +1626,7 @@ fn build_record0(
     srcs_record: Option<usize>,
     hd_geometry: Option<&str>,
     creator_tag: bool,
+    doc_type: Option<&str>,
 ) -> Vec<u8> {
     let default_name = if is_dictionary { "Dictionary" } else { "Book" };
     let full_name = if opf.title.is_empty() {
@@ -1757,7 +1764,7 @@ fn build_record0(
             kf8_boundary_record,
             hd_geometry,
             creator_tag,
-            None, // doc_type: default PDOC
+            doc_type,
             None, // description
             None, // subject
             None, // series
@@ -1812,6 +1819,7 @@ fn build_kf8_record0(
     srcs_record: Option<usize>,
     hd_geometry: Option<&str>,
     total_records: usize,
+    doc_type: Option<&str>,
 ) -> Vec<u8> {
     let full_name = if opf.title.is_empty() {
         "Book"
@@ -1939,7 +1947,7 @@ fn build_kf8_record0(
         None, // no KF8 boundary in KF8 header itself
         hd_geometry,
         creator_tag,
-        None, // doc_type: default PDOC
+        doc_type,
         None, // description
         None, // subject
         None, // series

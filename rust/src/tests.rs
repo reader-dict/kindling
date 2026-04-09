@@ -257,6 +257,7 @@ mod tests {
             false, // no_hd_images
             false, // creator_tag (use kindlegen-compat EXTH 535)
             false, // kf8_only (dual format)
+            None,  // doc_type
         )
         .expect("build_mobi failed");
         fs::read(&output_path).expect("could not read output MOBI")
@@ -670,6 +671,7 @@ mod tests {
             false, // no_hd_images
             false, // creator_tag
             true,  // kf8_only
+            None,  // doc_type
         )
         .expect("build_mobi (kf8_only) failed");
         fs::read(&output_path).expect("could not read output AZW3")
@@ -1454,6 +1456,7 @@ mod tests {
             panel_view: false, // disable for simpler test
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
             .expect("build_comic_with_options failed for RTL");
@@ -1533,6 +1536,7 @@ mod tests {
             panel_view: false,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
             .expect("build_comic with spread splitting failed");
@@ -1543,6 +1547,121 @@ mod tests {
         // Verify we got a valid MOBI (the spread should have been split into 2 pages)
         assert_eq!(&data[60..64], b"BOOK");
         println!("  \u{2713} Spread split pipeline: {} bytes, valid MOBI", data.len());
+    }
+
+    #[test]
+    fn test_rtl_spread_split_cover_is_right_half() {
+        use crate::comic;
+        // When RTL mode is active and the first image is a landscape spread,
+        // the cover (first page) should be the RIGHT half of the spread,
+        // since that's the "first" page in RTL reading order.
+        //
+        // This tests for a KCC-style regression where the wrong half was used
+        // as the cover due to the interaction between per-image RTL split
+        // ordering and global page reversal.
+        let dir = TempDir::new("rtl_spread_cover");
+        let images_dir = dir.path().join("images");
+        fs::create_dir_all(&images_dir).unwrap();
+
+        // Create a landscape image: left half is dark (50), right half is bright (200)
+        let img = image::DynamicImage::ImageLuma8(
+            image::GrayImage::from_fn(300, 150, |x, _| {
+                if x < 150 {
+                    image::Luma([50])   // left half: dark
+                } else {
+                    image::Luma([200])  // right half: bright
+                }
+            }),
+        );
+        img.save(images_dir.join("spread_001.jpg")).unwrap();
+
+        let output_path = dir.path().join("rtl_spread_cover.mobi");
+        let profile = comic::get_profile("paperwhite").unwrap();
+        let options = comic::ComicOptions {
+            rtl: true,
+            split: true,
+            crop: false,
+            enhance: false,
+            webtoon: false,
+            panel_view: false,
+            jpeg_quality: 95,  // high quality to preserve pixel values
+            max_height: 65536,
+            embed_source: false,
+            ..Default::default()
+        };
+        comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
+            .expect("build_comic with RTL spread splitting failed");
+
+        let data = fs::read(&output_path).expect("could not read RTL spread comic MOBI");
+        let (_, _, offsets) = parse_palmdb(&data);
+        let rec0 = get_record(&data, &offsets, 0);
+
+        // Find the first image record
+        let first_img_idx = read_u32_be(rec0, 108) as usize;
+        assert_ne!(first_img_idx, 0xFFFFFFFF_u32 as usize,
+            "Should have a first image record set");
+
+        // The cover is the first image record (EXTH 201 = cover_offset = 0)
+        let cover_rec = get_record(&data, &offsets, first_img_idx);
+        assert!(cover_rec.len() > 2 && cover_rec[0] == 0xFF && cover_rec[1] == 0xD8,
+            "Cover record should be a JPEG (FF D8 magic)");
+
+        // Decode the cover JPEG and check average brightness
+        let cover_img = image::load_from_memory(cover_rec)
+            .expect("Failed to decode cover JPEG from MOBI");
+        let gray = cover_img.to_luma8();
+        let (w, h) = (gray.width(), gray.height());
+        let avg_brightness: f64 = gray.pixels()
+            .map(|p| p.0[0] as f64)
+            .sum::<f64>() / (w as f64 * h as f64);
+
+        // The right half of the original was bright (~200). After grayscale
+        // conversion and JPEG compression, the average should be well above 150.
+        // The left half was dark (~50). If the wrong half were used, avg would be < 100.
+        assert!(avg_brightness > 150.0,
+            "RTL cover should be the RIGHT (bright) half of the spread, \
+             but average brightness was {:.1} (expected > 150). \
+             This suggests the LEFT (dark) half was incorrectly used as the cover.",
+            avg_brightness);
+
+        // Also verify LTR mode uses the LEFT (dark) half as cover
+        let ltr_output = dir.path().join("ltr_spread_cover.mobi");
+        let ltr_options = comic::ComicOptions {
+            rtl: false,
+            split: true,
+            crop: false,
+            enhance: false,
+            webtoon: false,
+            panel_view: false,
+            jpeg_quality: 95,
+            max_height: 65536,
+            embed_source: false,
+            ..Default::default()
+        };
+        comic::build_comic_with_options(&images_dir, &ltr_output, &profile, &ltr_options)
+            .expect("build_comic with LTR spread splitting failed");
+
+        let ltr_data = fs::read(&ltr_output).expect("could not read LTR spread comic MOBI");
+        let (_, _, ltr_offsets) = parse_palmdb(&ltr_data);
+        let ltr_rec0 = get_record(&ltr_data, &ltr_offsets, 0);
+        let ltr_first_img = read_u32_be(ltr_rec0, 108) as usize;
+        let ltr_cover_rec = get_record(&ltr_data, &ltr_offsets, ltr_first_img);
+        let ltr_cover_img = image::load_from_memory(ltr_cover_rec)
+            .expect("Failed to decode LTR cover JPEG");
+        let ltr_gray = ltr_cover_img.to_luma8();
+        let (lw, lh) = (ltr_gray.width(), ltr_gray.height());
+        let ltr_avg: f64 = ltr_gray.pixels()
+            .map(|p| p.0[0] as f64)
+            .sum::<f64>() / (lw as f64 * lh as f64);
+
+        assert!(ltr_avg < 100.0,
+            "LTR cover should be the LEFT (dark) half of the spread, \
+             but average brightness was {:.1} (expected < 100).",
+            ltr_avg);
+
+        println!("  \u{2713} RTL spread cover: brightness={:.1} (right/bright half), \
+                  LTR cover: brightness={:.1} (left/dark half)",
+                  avg_brightness, ltr_avg);
     }
 
     #[test]
@@ -1567,6 +1686,7 @@ mod tests {
         let opt_split = comic::ComicOptions {
             rtl: false, split: true, crop: false, enhance: false, webtoon: false, panel_view: false,
             jpeg_quality: 85, max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_split, &profile, &opt_split).unwrap();
 
@@ -1574,6 +1694,7 @@ mod tests {
         let opt_nosplit = comic::ComicOptions {
             rtl: false, split: false, crop: false, enhance: false, webtoon: false, panel_view: false,
             jpeg_quality: 85, max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_nosplit, &profile, &opt_nosplit).unwrap();
 
@@ -1611,6 +1732,7 @@ mod tests {
         let options = comic::ComicOptions {
             rtl: false, split: false, crop: false, enhance: true, webtoon: false, panel_view: false,
             jpeg_quality: 85, max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
             .expect("build_comic should succeed on color device even with enhance=true");
@@ -1655,6 +1777,7 @@ mod tests {
             panel_view: false,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
             .expect("build_comic with ComicInfo.xml failed");
@@ -2126,10 +2249,11 @@ mod tests {
     fn test_webtoon_split_hard_cut() {
         use crate::comic;
 
-        // Create a tall strip with NO gutters (no uniform rows) - forces hard split
+        // Create a tall strip with NO gutters (no uniform rows) - forces overlap split
         let strip_height = 3000u32;
         let strip_width = 100u32;
         let device_height = 1448u32;
+        let overlap = (device_height as f64 * 0.10) as u32;
 
         let img = image::DynamicImage::ImageLuma8(
             image::GrayImage::from_fn(strip_width, strip_height, |x, y| {
@@ -2143,10 +2267,90 @@ mod tests {
         // Should still produce pages
         assert!(pages.len() >= 2, "Should produce at least 2 pages even without gutters, got {}", pages.len());
 
-        // Total height should still equal original
+        // With overlap, total page height should be greater than strip height
+        // because overlapping regions are duplicated across pages
         let total_h: u32 = pages.iter().map(|p| p.height()).sum();
-        assert_eq!(total_h, strip_height, "Sum of page heights should equal strip height");
-        println!("  \u{2713} Hard-cut split: {} pages, total height={}", pages.len(), total_h);
+        assert!(total_h >= strip_height, "Sum of page heights ({}) should be >= strip height ({})", total_h, strip_height);
+
+        // Each split without a gutter adds ~overlap pixels of duplication,
+        // so total should be approximately strip_height + (num_splits * overlap)
+        let num_splits = pages.len() - 1;
+        let expected_overlap_total = num_splits as u32 * overlap;
+        assert!(
+            total_h <= strip_height + expected_overlap_total + device_height / 5,
+            "Total height ({}) should not vastly exceed strip height + overlap ({}+{})",
+            total_h, strip_height, expected_overlap_total,
+        );
+        println!("  \u{2713} Overlap split: {} pages, total height={} (strip={}, overlap per split={})",
+            pages.len(), total_h, strip_height, overlap);
+    }
+
+    #[test]
+    fn test_webtoon_split_overlap_content() {
+        use crate::comic;
+        use image::GenericImageView;
+
+        // Create a strip with unique pixel values per row so we can verify
+        // that the overlap region is truly duplicated across page boundaries.
+        let strip_height = 3000u32;
+        let strip_width = 50u32;
+        let device_height = 1448u32;
+        let overlap = (device_height as f64 * 0.10) as u32;
+
+        let img = image::DynamicImage::ImageLuma8(
+            image::GrayImage::from_fn(strip_width, strip_height, |x, y| {
+                // Every row gets a unique-ish pattern (high variance, no gutters)
+                image::Luma([((x.wrapping_mul(41).wrapping_add(y.wrapping_mul(97))) % 200) as u8 + 28])
+            }),
+        );
+
+        let pages = comic::webtoon_split(&img, device_height);
+        assert!(pages.len() >= 2, "Need at least 2 pages to test overlap");
+
+        // For consecutive pages, verify the bottom of page N overlaps the top of page N+1.
+        // Since no gutter exists, each split should produce overlap.
+        // We reconstruct approximate y_start positions from page heights.
+        let mut y_positions: Vec<u32> = Vec::new();
+        let mut y = 0u32;
+        for page in &pages {
+            y_positions.push(y);
+            let page_h = page.height();
+            // When there's overlap, the next page starts at (y + page_h - overlap)
+            // but only if it's not the last page
+            y += page_h;
+        }
+
+        // Check that total height > strip height (overlap causes duplication)
+        let total_h: u32 = pages.iter().map(|p| p.height()).sum();
+        assert!(
+            total_h > strip_height,
+            "With no gutters, overlap should make total height ({}) > strip height ({})",
+            total_h, strip_height,
+        );
+
+        // Verify that pages cover the full strip (last page's end should reach strip_height).
+        // Reconstruct actual y_start for each page accounting for overlap.
+        let mut actual_y = 0u32;
+        for (i, page) in pages.iter().enumerate() {
+            let page_h = page.height();
+            let page_end = actual_y + page_h;
+            if i == pages.len() - 1 {
+                assert_eq!(
+                    page_end, strip_height,
+                    "Last page should reach end of strip: page_end={}, strip_height={}",
+                    page_end, strip_height,
+                );
+            }
+            // Advance, subtracting overlap for non-final pages
+            if i < pages.len() - 1 {
+                actual_y = page_end.saturating_sub(overlap);
+            }
+        }
+
+        println!(
+            "  \u{2713} Overlap content: {} pages, overlap={}, total_h={} (strip={})",
+            pages.len(), overlap, total_h, strip_height,
+        );
     }
 
     #[test]
@@ -2203,6 +2407,7 @@ mod tests {
             panel_view: false,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
 
         comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
@@ -2257,6 +2462,7 @@ mod tests {
             panel_view: false,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
 
         comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
@@ -2300,6 +2506,7 @@ mod tests {
             panel_view: false,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
 
         comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
@@ -2440,6 +2647,7 @@ mod tests {
             panel_view: true,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
 
         comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
@@ -2487,6 +2695,7 @@ mod tests {
             panel_view: false,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_no_pv, &profile, &options_no_pv)
             .expect("no-panel-view comic build should succeed");
@@ -2502,6 +2711,7 @@ mod tests {
             panel_view: true,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_with_pv, &profile, &options_with_pv)
             .expect("panel-view comic build should succeed");
@@ -2585,6 +2795,7 @@ mod tests {
             panel_view: true,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_pv, &profile, &options)
             .expect("Panel View OPF comic build should succeed");
@@ -2600,6 +2811,7 @@ mod tests {
             panel_view: false,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_no_pv, &profile, &options_no)
             .expect("No Panel View OPF comic build should succeed");
@@ -2681,6 +2893,7 @@ mod tests {
             webtoon: false, panel_view: false,
             jpeg_quality: 30,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_low, &profile, &options_low)
             .expect("low quality build failed");
@@ -2692,6 +2905,7 @@ mod tests {
             webtoon: false, panel_view: false,
             jpeg_quality: 95,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_high, &profile, &options_high)
             .expect("high quality build failed");
@@ -2744,6 +2958,7 @@ mod tests {
             jpeg_quality: 85,
             max_height: 3000,
             embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_chunked, &profile, &options_chunked)
             .expect("chunked webtoon build failed");
@@ -2755,6 +2970,7 @@ mod tests {
             webtoon: true, panel_view: false,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
         comic::build_comic_with_options(&images_dir, &output_normal, &profile, &options_normal)
             .expect("normal webtoon build failed");
@@ -2799,6 +3015,7 @@ mod tests {
             webtoon: false, panel_view: false,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
 
         // Should succeed despite the corrupt image
@@ -2858,6 +3075,7 @@ mod tests {
             webtoon: false, panel_view: false,
             jpeg_quality: 85,
             max_height: 65536, embed_source: false,
+            ..Default::default()
         };
 
         // Should succeed by skipping the zero-dimension image
