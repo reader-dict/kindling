@@ -437,7 +437,7 @@ fn extract_epub_images(epub_path: &Path) -> Result<(Vec<PathBuf>, PathBuf), Box<
 ///   1. `<img src="...">` - standard HTML image tags
 ///   2. `<image xlink:href="...">` or `<image href="...">` - SVG image elements
 ///   3. CSS background-image references (less common, but seen in some EPUBs)
-fn extract_image_refs_from_xhtml(content: &str) -> Vec<String> {
+pub fn extract_image_refs_from_xhtml(content: &str) -> Vec<String> {
     use quick_xml::events::Event;
     use quick_xml::Reader;
 
@@ -504,7 +504,7 @@ fn extract_image_refs_from_xhtml(content: &str) -> Vec<String> {
 /// Regex fallback for extracting image references from XHTML.
 ///
 /// Used when the XML parser fails (malformed XHTML) or finds no images.
-fn extract_image_refs_regex(content: &str) -> Vec<String> {
+pub fn extract_image_refs_regex(content: &str) -> Vec<String> {
     use regex::Regex;
     use std::sync::OnceLock;
 

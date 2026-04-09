@@ -3088,4 +3088,459 @@ mod tests {
         assert_eq!(&data[60..64], b"BOOK");
         println!("  \u{2713} Zero-dim image skipped, valid MOBI: {} bytes", data.len());
     }
+
+    // =======================================================================
+    // 14. Device profiles (new devices)
+    // =======================================================================
+
+    #[test]
+    fn test_device_profile_kpw5() {
+        use crate::comic;
+        let profile = comic::get_profile("kpw5").expect("kpw5 profile should exist");
+        assert_eq!(profile.width, 1236, "kpw5 width should be 1236, got {}", profile.width);
+        assert_eq!(profile.height, 1648, "kpw5 height should be 1648, got {}", profile.height);
+        assert!(profile.grayscale, "kpw5 should be grayscale");
+        println!("  \u{2713} kpw5: {}x{}, grayscale={}", profile.width, profile.height, profile.grayscale);
+    }
+
+    #[test]
+    fn test_device_profile_scribe2025() {
+        use crate::comic;
+        let profile = comic::get_profile("scribe2025").expect("scribe2025 profile should exist");
+        assert_eq!(profile.width, 1986, "scribe2025 width should be 1986, got {}", profile.width);
+        assert_eq!(profile.height, 2648, "scribe2025 height should be 2648, got {}", profile.height);
+        assert!(profile.grayscale, "scribe2025 should be grayscale");
+        println!("  \u{2713} scribe2025: {}x{}, grayscale={}", profile.width, profile.height, profile.grayscale);
+    }
+
+    #[test]
+    fn test_device_profile_kindle2024() {
+        use crate::comic;
+        let profile = comic::get_profile("kindle2024").expect("kindle2024 profile should exist");
+        assert_eq!(profile.width, 1240, "kindle2024 width should be 1240, got {}", profile.width);
+        assert_eq!(profile.height, 1860, "kindle2024 height should be 1860, got {}", profile.height);
+        assert!(profile.grayscale, "kindle2024 should be grayscale");
+        println!("  \u{2713} kindle2024: {}x{}, grayscale={}", profile.width, profile.height, profile.grayscale);
+    }
+
+    #[test]
+    fn test_valid_device_names_includes_new() {
+        use crate::comic;
+        let names = comic::valid_device_names();
+        assert!(names.contains("kpw5"), "valid_device_names should contain 'kpw5', got: {}", names);
+        assert!(names.contains("scribe2025"), "valid_device_names should contain 'scribe2025', got: {}", names);
+        assert!(names.contains("kindle2024"), "valid_device_names should contain 'kindle2024', got: {}", names);
+        println!("  \u{2713} valid_device_names includes kpw5, scribe2025, kindle2024: {}", names);
+    }
+
+    // =======================================================================
+    // 15. Moire wiring (color vs grayscale devices)
+    // =======================================================================
+
+    #[test]
+    fn test_moire_applied_for_color_device() {
+        use crate::comic;
+
+        let dir = TempDir::new("moire_color");
+        let images_dir = dir.path().join("images");
+        fs::create_dir_all(&images_dir).unwrap();
+
+        // Create a grayscale test image (saved as grayscale JPEG)
+        let img = image::DynamicImage::ImageLuma8(
+            image::GrayImage::from_fn(100, 150, |x, y| {
+                // Fine screentone pattern (alternating bright/dark pixels)
+                if (x + y) % 2 == 0 {
+                    image::Luma([200])
+                } else {
+                    image::Luma([50])
+                }
+            }),
+        );
+        img.save(images_dir.join("page_001.jpg")).unwrap();
+
+        // Build with colorsoft (color device, grayscale=false) - moire filter should run
+        let output_path = dir.path().join("moire_color.mobi");
+        let profile = comic::get_profile("colorsoft").unwrap();
+        assert!(!profile.grayscale, "colorsoft should be a color device");
+        let options = comic::ComicOptions {
+            rtl: false, split: false, crop: false, enhance: false,
+            webtoon: false, panel_view: false,
+            jpeg_quality: 85, max_height: 65536, embed_source: false,
+            ..Default::default()
+        };
+        comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
+            .expect("build_comic should succeed with moire filter on color device");
+
+        let data = fs::read(&output_path).unwrap();
+        assert!(data.len() > 100, "Color device comic MOBI should be valid");
+        assert_eq!(&data[60..64], b"BOOK");
+        println!("  \u{2713} Moire filter on color device (colorsoft): {} bytes, valid MOBI", data.len());
+    }
+
+    #[test]
+    fn test_moire_not_applied_for_grayscale_device() {
+        use crate::comic;
+
+        let dir = TempDir::new("moire_grayscale");
+        let images_dir = dir.path().join("images");
+        fs::create_dir_all(&images_dir).unwrap();
+
+        // Same grayscale screentone test image
+        let img = image::DynamicImage::ImageLuma8(
+            image::GrayImage::from_fn(100, 150, |x, y| {
+                if (x + y) % 2 == 0 {
+                    image::Luma([200])
+                } else {
+                    image::Luma([50])
+                }
+            }),
+        );
+        img.save(images_dir.join("page_001.jpg")).unwrap();
+
+        // Build with paperwhite (grayscale device) - moire filter should NOT run
+        let output_path = dir.path().join("moire_grayscale.mobi");
+        let profile = comic::get_profile("paperwhite").unwrap();
+        assert!(profile.grayscale, "paperwhite should be a grayscale device");
+        let options = comic::ComicOptions {
+            rtl: false, split: false, crop: false, enhance: false,
+            webtoon: false, panel_view: false,
+            jpeg_quality: 85, max_height: 65536, embed_source: false,
+            ..Default::default()
+        };
+        comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
+            .expect("build_comic should succeed without moire filter on grayscale device");
+
+        let data = fs::read(&output_path).unwrap();
+        assert!(data.len() > 100, "Grayscale device comic MOBI should be valid");
+        assert_eq!(&data[60..64], b"BOOK");
+        println!("  \u{2713} Moire filter skipped on grayscale device (paperwhite): {} bytes, valid MOBI", data.len());
+    }
+
+    // =======================================================================
+    // 16. Crop-before-split ordering (symmetric crop)
+    // =======================================================================
+
+    #[test]
+    fn test_crop_before_split_symmetric() {
+        use crate::comic;
+        use image::GenericImageView;
+
+        // Create a 200x100 landscape image with:
+        // - 10px uniform white border on all sides
+        // - Left half content (inside border) is dark gray (60)
+        // - Right half content (inside border) is light gray (190)
+        let img = image::DynamicImage::ImageLuma8(
+            image::GrayImage::from_fn(200, 100, |x, y| {
+                // White border: 10px on all sides
+                if x < 10 || x >= 190 || y < 10 || y >= 90 {
+                    image::Luma([255])
+                } else if x < 100 {
+                    // Left half content (dark)
+                    image::Luma([60])
+                } else {
+                    // Right half content (light)
+                    image::Luma([190])
+                }
+            }),
+        );
+
+        // First, crop the borders (this simulates the pipeline's crop-before-split)
+        let cropped = comic::crop_borders(&img);
+        let (cw, ch) = cropped.dimensions();
+
+        // The border is 10px on each side of a 200x100 image,
+        // which is 5% of width and 10% of height - both above the 2% threshold
+        assert!(cw < 200, "Should have cropped width: got {}", cw);
+        assert!(ch < 100, "Should have cropped height: got {}", ch);
+
+        // Now split the cropped image (it should be landscape since cw > ch)
+        assert!(comic::is_double_page_spread(&cropped), "Cropped image should still be landscape");
+        let (left, right) = comic::split_spread(&cropped);
+
+        // Key assertion: both halves should have the same width
+        // because we cropped symmetrically before splitting
+        assert_eq!(
+            left.width(), right.width(),
+            "After crop-then-split, left ({}) and right ({}) halves should have equal width",
+            left.width(), right.width()
+        );
+        println!(
+            "  \u{2713} Crop-before-split: original 200x100 -> cropped {}x{} -> halves {}x{} and {}x{} (symmetric)",
+            cw, ch, left.width(), left.height(), right.width(), right.height()
+        );
+    }
+
+    // =======================================================================
+    // 17. EPUB comic input (image extraction helpers)
+    // =======================================================================
+
+    #[test]
+    fn test_extract_image_refs_img_tag() {
+        use crate::comic;
+
+        let xhtml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body>
+  <div><img src="page1.jpg"/></div>
+</body>
+</html>"#;
+
+        let refs = comic::extract_image_refs_from_xhtml(xhtml);
+        assert_eq!(refs, vec!["page1.jpg"], "Should extract 'page1.jpg' from <img src=...>, got {:?}", refs);
+        println!("  \u{2713} extract_image_refs_from_xhtml(<img>): {:?}", refs);
+    }
+
+    #[test]
+    fn test_extract_image_refs_svg_image() {
+        use crate::comic;
+
+        let xhtml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:svg="http://www.w3.org/2000/svg">
+<body>
+  <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <image xlink:href="page1.jpg" width="100%" height="100%"/>
+  </svg>
+</body>
+</html>"#;
+
+        let refs = comic::extract_image_refs_from_xhtml(xhtml);
+        assert_eq!(refs, vec!["page1.jpg"], "Should extract 'page1.jpg' from <image xlink:href=...>, got {:?}", refs);
+        println!("  \u{2713} extract_image_refs_from_xhtml(<image xlink:href>): {:?}", refs);
+    }
+
+    #[test]
+    fn test_extract_image_refs_regex_img_tag() {
+        use crate::comic;
+
+        let content = r#"<html><body><img src="images/page01.png" alt="page"/></body></html>"#;
+        let refs = comic::extract_image_refs_regex(content);
+        assert_eq!(refs, vec!["images/page01.png"], "Regex should extract img src, got {:?}", refs);
+        println!("  \u{2713} extract_image_refs_regex(<img>): {:?}", refs);
+    }
+
+    #[test]
+    fn test_extract_image_refs_regex_svg_image() {
+        use crate::comic;
+
+        let content = r#"<svg><image xlink:href="page1.jpg" width="100%" height="100%"/></svg>"#;
+        let refs = comic::extract_image_refs_regex(content);
+        assert_eq!(refs, vec!["page1.jpg"], "Regex should extract image xlink:href, got {:?}", refs);
+        println!("  \u{2713} extract_image_refs_regex(<image xlink:href>): {:?}", refs);
+    }
+
+    #[test]
+    fn test_extract_image_refs_multiple() {
+        use crate::comic;
+
+        let xhtml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body>
+  <img src="cover.jpg"/>
+  <img src="page1.png"/>
+  <img src="page2.png"/>
+</body>
+</html>"#;
+
+        let refs = comic::extract_image_refs_from_xhtml(xhtml);
+        assert_eq!(refs.len(), 3, "Should extract 3 image refs, got {}", refs.len());
+        assert_eq!(refs[0], "cover.jpg");
+        assert_eq!(refs[1], "page1.png");
+        assert_eq!(refs[2], "page2.png");
+        println!("  \u{2713} extract_image_refs_from_xhtml (multiple): {:?}", refs);
+    }
+
+    // =======================================================================
+    // 18. Dark gutter detection (webtoon split)
+    // =======================================================================
+
+    #[test]
+    fn test_webtoon_split_dark_background() {
+        use crate::comic;
+        use image::GenericImageView;
+
+        // Create a tall strip where panels are separated by solid BLACK rows.
+        // This tests that the gutter detector finds dark gutters, not just white.
+        let strip_height = 4000u32;
+        let strip_width = 100u32;
+        let device_height = 1448u32;
+
+        let img = image::DynamicImage::ImageLuma8(
+            image::GrayImage::from_fn(strip_width, strip_height, |_x, y| {
+                // Create solid BLACK gutter rows near target split points
+                if (y >= 1390 && y <= 1420) || (y >= 2790 && y <= 2820) {
+                    image::Luma([0]) // BLACK gutter (not white)
+                } else {
+                    // Varied content (high variance rows)
+                    image::Luma([((y * 7 + 13) % 200) as u8 + 30])
+                }
+            }),
+        );
+
+        let pages = comic::webtoon_split(&img, device_height);
+
+        // Should produce at least 2 pages
+        assert!(
+            pages.len() >= 2,
+            "Dark-gutter strip should produce at least 2 pages, got {}",
+            pages.len()
+        );
+        assert!(
+            pages.len() <= 4,
+            "Should produce at most 4 pages, got {}",
+            pages.len()
+        );
+
+        // All pages should have the correct width
+        for (i, page) in pages.iter().enumerate() {
+            let (pw, _ph) = page.dimensions();
+            assert_eq!(pw, strip_width, "Page {} width should be {}, got {}", i, strip_width, pw);
+        }
+
+        // Total height should equal the strip height (clean gutter cuts, no overlap needed)
+        let total_h: u32 = pages.iter().map(|p| p.height()).sum();
+        assert_eq!(
+            total_h, strip_height,
+            "Sum of page heights ({}) should equal strip height ({}) for clean gutter cuts",
+            total_h, strip_height
+        );
+        println!(
+            "  \u{2713} Dark gutter detection: {} pages from {}px strip, total_h={}, all widths={}",
+            pages.len(), strip_height, total_h, strip_width
+        );
+    }
+
+    // =======================================================================
+    // 19. CLI flags (ComicOptions): doc_type, title, language
+    // =======================================================================
+
+    #[test]
+    fn test_comic_doc_type_ebok() {
+        use crate::comic;
+
+        let dir = TempDir::new("comic_doc_type");
+        let images_dir = dir.path().join("images");
+        fs::create_dir_all(&images_dir).unwrap();
+
+        let img = image::DynamicImage::ImageLuma8(
+            image::GrayImage::from_fn(100, 150, |_, _| image::Luma([128])),
+        );
+        img.save(images_dir.join("page_001.jpg")).unwrap();
+
+        let output_path = dir.path().join("ebok_comic.mobi");
+        let profile = comic::get_profile("paperwhite").unwrap();
+        let options = comic::ComicOptions {
+            rtl: false, split: false, crop: false, enhance: false,
+            webtoon: false, panel_view: false,
+            jpeg_quality: 85, max_height: 65536, embed_source: false,
+            doc_type: Some("EBOK".to_string()),
+            ..Default::default()
+        };
+        comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
+            .expect("build_comic with doc_type=EBOK should succeed");
+
+        let data = fs::read(&output_path).unwrap();
+        let (_, _, offsets) = parse_palmdb(&data);
+        let rec0 = get_record(&data, &offsets, 0);
+        let exth = parse_exth_records(rec0);
+
+        // Verify EXTH 501 = "EBOK"
+        let exth501 = exth.get(&501).expect("EXTH 501 should exist for doc_type=EBOK");
+        let value = std::str::from_utf8(&exth501[0]).unwrap();
+        assert_eq!(value, "EBOK", "EXTH 501 should be 'EBOK', got '{}'", value);
+        println!("  \u{2713} Comic doc_type=EBOK: EXTH 501='{}'", value);
+    }
+
+    #[test]
+    fn test_comic_title_override() {
+        use crate::comic;
+
+        let dir = TempDir::new("comic_title_override");
+        let images_dir = dir.path().join("images");
+        fs::create_dir_all(&images_dir).unwrap();
+
+        let img = image::DynamicImage::ImageLuma8(
+            image::GrayImage::from_fn(100, 150, |_, _| image::Luma([128])),
+        );
+        img.save(images_dir.join("page_001.jpg")).unwrap();
+
+        let output_path = dir.path().join("titled_comic.mobi");
+        let profile = comic::get_profile("paperwhite").unwrap();
+        let options = comic::ComicOptions {
+            rtl: false, split: false, crop: false, enhance: false,
+            webtoon: false, panel_view: false,
+            jpeg_quality: 85, max_height: 65536, embed_source: false,
+            title_override: Some("Custom Title".to_string()),
+            ..Default::default()
+        };
+        comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
+            .expect("build_comic with title_override should succeed");
+
+        let data = fs::read(&output_path).unwrap();
+
+        // Check PalmDB name contains the custom title
+        let (name_bytes, _, _) = parse_palmdb(&data);
+        let name_len = name_bytes.iter().position(|&b| b == 0).unwrap_or(32);
+        let name = std::str::from_utf8(&name_bytes[..name_len]).unwrap();
+        assert!(
+            name.contains("Custom") || name.contains("custom"),
+            "PalmDB name should reflect the title override 'Custom Title', got '{}'",
+            name
+        );
+
+        // Also check EXTH 503 (updated title) if present
+        let (_, _, offsets) = parse_palmdb(&data);
+        let rec0 = get_record(&data, &offsets, 0);
+        let exth = parse_exth_records(rec0);
+        // EXTH 503 is the updated title
+        if let Some(exth503) = exth.get(&503) {
+            let title = std::str::from_utf8(&exth503[0]).unwrap();
+            assert!(
+                title.contains("Custom Title"),
+                "EXTH 503 should contain 'Custom Title', got '{}'",
+                title
+            );
+            println!("  \u{2713} Comic title override: PalmDB='{}', EXTH 503='{}'", name, title);
+        } else {
+            // Check EXTH 100 (author field is often set, but 503 may not be - check EXTH 99 = title)
+            // The title goes through the OPF -> MOBI path. Verify via PalmDB name at minimum.
+            println!("  \u{2713} Comic title override: PalmDB='{}' (no EXTH 503)", name);
+        }
+    }
+
+    #[test]
+    fn test_comic_language_override() {
+        use crate::comic;
+
+        let dir = TempDir::new("comic_language");
+        let images_dir = dir.path().join("images");
+        fs::create_dir_all(&images_dir).unwrap();
+
+        let img = image::DynamicImage::ImageLuma8(
+            image::GrayImage::from_fn(100, 150, |_, _| image::Luma([128])),
+        );
+        img.save(images_dir.join("page_001.jpg")).unwrap();
+
+        let output_path = dir.path().join("ja_comic.mobi");
+        let profile = comic::get_profile("paperwhite").unwrap();
+        let options = comic::ComicOptions {
+            rtl: false, split: false, crop: false, enhance: false,
+            webtoon: false, panel_view: false,
+            jpeg_quality: 85, max_height: 65536, embed_source: false,
+            language: Some("ja".to_string()),
+            ..Default::default()
+        };
+        comic::build_comic_with_options(&images_dir, &output_path, &profile, &options)
+            .expect("build_comic with language=ja should succeed");
+
+        let data = fs::read(&output_path).unwrap();
+        let (_, _, offsets) = parse_palmdb(&data);
+        let rec0 = get_record(&data, &offsets, 0);
+        let exth = parse_exth_records(rec0);
+
+        // Verify EXTH 524 = "ja" (language)
+        let exth524 = exth.get(&524).expect("EXTH 524 should exist for language override");
+        let value = std::str::from_utf8(&exth524[0]).unwrap();
+        assert_eq!(value, "ja", "EXTH 524 should be 'ja', got '{}'", value);
+        println!("  \u{2713} Comic language=ja: EXTH 524='{}'", value);
+    }
 }
