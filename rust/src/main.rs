@@ -27,7 +27,7 @@ use std::process;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "kindling", about = "Kindle MOBI builder for dictionaries and books")]
+#[command(name = "kindling", about = "Kindle MOBI builder for dictionaries and books", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -36,6 +36,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Build MOBI file from OPF or EPUB
+    #[command(version)]
     Build {
         /// Input OPF or EPUB file
         input: PathBuf,
@@ -76,6 +77,7 @@ enum Commands {
     },
 
     /// Convert comic images/CBZ/CBR to Kindle-optimized MOBI
+    #[command(version)]
     Comic {
         /// Input image folder, CBZ file, or CBR file
         input: PathBuf,

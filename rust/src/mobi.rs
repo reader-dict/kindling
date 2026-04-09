@@ -883,7 +883,7 @@ fn build_cont_record(
         exth::exth_record(204, &202u32.to_be_bytes()), // creator platform
         exth::exth_record(205, &0u32.to_be_bytes()),   // major
         exth::exth_record(206, &1u32.to_be_bytes()),   // minor
-        exth::exth_record(535, b"kindling-0.2.0"),      // creator string
+        exth::exth_record(535, format!("kindling-{}", env!("CARGO_PKG_VERSION")).as_bytes()),
         exth::exth_record(207, &0u32.to_be_bytes()),   // build
         exth::exth_record(539, b"application/image"),   // container MIME
     ];

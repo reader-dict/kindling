@@ -312,7 +312,8 @@ pub fn build_book_exth(
         records.push(exth_record(204, &300u32.to_be_bytes())); // platform = 300 (kindling)
         records.push(exth_record(205, &0u32.to_be_bytes()));
         records.push(exth_record(206, &2u32.to_be_bytes()));
-        records.push(exth_record(535, b"kindling-0.2.0"));
+        let creator_str = format!("kindling-{}", env!("CARGO_PKG_VERSION"));
+        records.push(exth_record(535, creator_str.as_bytes()));
     } else {
         records.push(exth_record(204, &201u32.to_be_bytes())); // platform = 201 (Mac)
         records.push(exth_record(205, &2u32.to_be_bytes()));
@@ -467,7 +468,8 @@ pub fn build_exth(
         records.push(exth_record(204, &300u32.to_be_bytes())); // platform = 300 (kindling)
         records.push(exth_record(205, &0u32.to_be_bytes()));
         records.push(exth_record(206, &2u32.to_be_bytes()));
-        records.push(exth_record(535, b"kindling-0.2.0"));
+        let creator_str = format!("kindling-{}", env!("CARGO_PKG_VERSION"));
+        records.push(exth_record(535, creator_str.as_bytes()));
     } else {
         records.push(exth_record(204, &201u32.to_be_bytes())); // platform = 201 (Mac)
         records.push(exth_record(205, &2u32.to_be_bytes()));
