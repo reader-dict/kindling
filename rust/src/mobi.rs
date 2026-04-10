@@ -1588,8 +1588,12 @@ fn compress_text(text_bytes: &[u8]) -> (Vec<Vec<u8>>, usize) {
                 let mut idx = worker_id;
                 while idx < chunk_count {
                     let mut compressed = palmdoc::compress(&chunks[idx]);
-                    compressed.push(0x00);
+                    // Trailing bytes for extra_flags=3 (bit 0=multibyte, bit 1=TBS):
+                    // 0x81 = TBS entry (stop bit set, size=1: just this byte, no payload)
+                    // 0x00 = multibyte byte (low 2 bits=0: no extra multibyte bytes)
+                    // Order matters: TBS comes first, multibyte last (parsed from end).
                     compressed.push(0x81);
+                    compressed.push(0x00);
                     results.push((idx, compressed));
                     idx += num_workers;
                 }
@@ -1610,8 +1614,9 @@ fn compress_text(text_bytes: &[u8]) -> (Vec<Vec<u8>>, usize) {
             .iter()
             .map(|chunk| {
                 let mut compressed = palmdoc::compress(chunk);
-                compressed.push(0x00);
+                // Trailing bytes: TBS(0x81) then multibyte(0x00)
                 compressed.push(0x81);
+                compressed.push(0x00);
                 compressed
             })
             .collect()
@@ -1634,8 +1639,9 @@ fn split_text_uncompressed(text_bytes: &[u8]) -> (Vec<Vec<u8>>, usize) {
         .chunks(chunk_size)
         .map(|chunk| {
             let mut rec = chunk.to_vec();
-            rec.push(0x00);
+            // Trailing bytes: TBS(0x81) then multibyte(0x00)
             rec.push(0x81);
+            rec.push(0x00);
             rec
         })
         .collect();

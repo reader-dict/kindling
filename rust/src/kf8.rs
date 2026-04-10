@@ -287,9 +287,9 @@ fn compress_text_kf8(text_bytes: &[u8]) -> (Vec<Vec<u8>>, usize) {
         .iter()
         .map(|chunk| {
             let mut compressed = palmdoc::compress(chunk);
-            // KF8 trailing bytes: 2 bytes (same as KF7 for now)
-            compressed.push(0x00);
+            // Trailing bytes: TBS(0x81) then multibyte(0x00)
             compressed.push(0x81);
+            compressed.push(0x00);
             compressed
         })
         .collect();
@@ -306,8 +306,9 @@ fn split_text_uncompressed_kf8(text_bytes: &[u8]) -> (Vec<Vec<u8>>, usize) {
         .chunks(chunk_size)
         .map(|chunk| {
             let mut rec = chunk.to_vec();
-            rec.push(0x00);
+            // Trailing bytes: TBS(0x81) then multibyte(0x00)
             rec.push(0x81);
+            rec.push(0x00);
             rec
         })
         .collect();
